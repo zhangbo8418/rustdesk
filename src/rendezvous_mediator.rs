@@ -174,7 +174,7 @@ impl RendezvousMediator {
                 let mut latency = last_register_sent
                     .map(|x| x.elapsed().as_micros() as i64)
                     .unwrap_or(0);
-                // last_register_sent = None;
+                last_register_sent = None;
                 if latency < 0 || latency > 1_000_000 {
                     return;
                 }
