@@ -154,11 +154,7 @@ impl RendezvousMediator {
 
         let mut timer = interval(TIMER_OUT);
         let mut last_timer: Option<Instant> = None;
-        // const MIN_REG_TIMEOUT: i64 = 3_000;
-        // const MAX_REG_TIMEOUT: i64 = 30_000;
-        // let mut reg_timeout = MIN_REG_TIMEOUT;
-        const REG_TIMEOUT: i64 = 3_000;
-        
+        const REG_TIMEOUT: i64 = 3_000;  
         const MAX_FAILS1: i64 = 2;
         const MAX_FAILS2: i64 = 4;
         const DNS_INTERVAL: i64 = 60_000;
@@ -172,7 +168,6 @@ impl RendezvousMediator {
             let mut update_latency = || {
                 last_register_resp = Some(Instant::now());
                 fails = 0;
-                // reg_timeout = MIN_REG_TIMEOUT;
                 let mut latency = last_register_sent
                     .map(|x| x.elapsed().as_micros() as i64)
                     .unwrap_or(0);
@@ -224,14 +219,9 @@ impl RendezvousMediator {
                     last_timer = now;
                     let expired = last_register_resp.map(|x| x.elapsed().as_millis() as i64 >= REG_INTERVAL).unwrap_or(true);
                     let timeout = last_register_sent.map(|x| x.elapsed().as_millis() as i64 >= REG_TIMEOUT).unwrap_or(false);
-                    // let timeout = last_register_sent.map(|x| x.elapsed().as_millis() as i64 >= reg_timeout).unwrap_or(false);
-                    // if timeout && reg_timeout < MAX_REG_TIMEOUT {
-                       // reg_timeout += MIN_REG_TIMEOUT;
-                   // }
                     if timeout || (last_register_sent.is_none() && expired) {
                         if timeout {
                             fails += 1;
-                            // if fails >= MAX_FAILS2 {
                             if fails > MAX_FAILS2 {
                                 Config::update_latency(&host, -1);
                                 old_latency = 0;
@@ -244,7 +234,6 @@ impl RendezvousMediator {
                                     }
                                     last_dns_check = Instant::now();
                                 }
-                            // } else if fails >= MAX_FAILS1 {
                             } else if fails > MAX_FAILS1 {
                                 Config::update_latency(&host, 0);
                                 old_latency = 0;
