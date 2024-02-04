@@ -171,7 +171,6 @@ impl RendezvousMediator {
                 let mut latency = last_register_sent
                     .map(|x| x.elapsed().as_micros() as i64)
                     .unwrap_or(0);
-                last_register_sent = None;
                 if latency < 0 || latency > 1_000_000 {
                     return;
                 }
@@ -217,9 +216,11 @@ impl RendezvousMediator {
                         continue;
                     }
                     last_timer = now;
-                    let expired = last_register_resp.map(|x| x.elapsed().as_millis() as i64 >= REG_INTERVAL).unwrap_or(true);
-                    let timeout = last_register_sent.map(|x| x.elapsed().as_millis() as i64 >= REG_TIMEOUT).unwrap_or(false);
-                    if timeout || (last_register_sent.is_none() && expired) {
+                    let elapsed_resp = last_register_resp.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL);
+                    let timeout = (elapsed_resp - last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL)) > REG_TIMEOUT;
+                    if timeout || elapsed_resp >= REG_INTERVAL {
+                        rz.register_peer(Sink::Framed(&mut socket, &addr)).await?;
+                        last_register_sent = now;
                         if timeout {
                             fails += 1;
                             if fails > MAX_FAILS2 {
@@ -239,8 +240,6 @@ impl RendezvousMediator {
                                 old_latency = 0;
                             }
                         }
-                        rz.register_peer(Sink::Framed(&mut socket, &addr)).await?;
-                        last_register_sent = now;
                     }
                 }
             }
