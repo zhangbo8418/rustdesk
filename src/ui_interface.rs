@@ -249,12 +249,6 @@ pub fn set_peer_option(id: String, name: String, value: String) {
 }
 
 #[inline]
-pub fn using_public_server() -> bool {
-    option_env!("RENDEZVOUS_SERVER").unwrap_or("").is_empty()
-        && crate::get_custom_rendezvous_server(get_option("custom-rendezvous-server")).is_empty()
-}
-
-#[inline]
 pub fn get_options() -> String {
     let options = {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1044,7 +1038,9 @@ async fn check_connect_status_(reconnect: bool, rx: mpsc::UnboundedReceiver<ipc:
 
     loop {
         if let Ok(mut c) = ipc::connect(1000, "").await {
-            let mut timer = time::interval(time::Duration::from_secs(1));
+            const TIMER_OUT: time::Duration = time::Duration::from_secs(1);
+            let mut timer = time::interval(TIMER_OUT);
+            let mut last_timer = time::Instant::now() - TIMER_OUT * 2;
             loop {
                 tokio::select! {
                     res = c.next() => {
@@ -1112,6 +1108,11 @@ async fn check_connect_status_(reconnect: bool, rx: mpsc::UnboundedReceiver<ipc:
                         allow_err!(c.send(&data).await);
                     }
                     _ = timer.tick() => {
+                        if last_timer.elapsed() < TIMER_OUT {
+                            continue;
+                        }
+                        last_timer = time::Instant::now();
+
                         c.send(&ipc::Data::OnlineStatus(None)).await.ok();
                         c.send(&ipc::Data::Options(None)).await.ok();
                         c.send(&ipc::Data::Config(("id".to_owned(), None))).await.ok();

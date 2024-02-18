@@ -292,7 +292,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Overwrite", "Overschrijven"),
         ("This file exists, skip or overwrite this file?", "Dit bestand bestaat reeds, overslaan of overschrijven?"),
         ("Quit", "Afsluiten"),
-        ("Help", "https://rustdesk.com/docs/en/manual/linux/#x11-required"),
         ("Failed", "Mislukt"),
         ("Succeeded", "Geslaagd"),
         ("Someone turns on privacy mode, exit", "Iemand schakelt privacymodus in, afsluiten"),
@@ -586,5 +585,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("enter-2fa-title", "geef-2fa-titel in"),
         ("Email verification code must be 6 characters.", "E-mailverificatiecode moet 6 tekens lang zijn."),
         ("2FA code must be 6 digits.", "2FA-code moet 6 cijfers lang zijn."),
+        ("Multiple active user sessions found", ""),
+        ("Please select the user you want to connect to", ""),
     ].iter().cloned().collect();
 }
