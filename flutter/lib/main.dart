@@ -142,6 +142,7 @@ void runMainApp(bool startService) async {
     }
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());
+    windowManager.setResizable(!bind.isQs());
   });
 }
 
