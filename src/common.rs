@@ -865,7 +865,16 @@ pub fn username() -> String {
 #[inline]
 pub fn hostname() -> String {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    return whoami::hostname();
+    {
+        #[allow(unused_mut)]
+        let mut name = whoami::hostname();
+        // some time, there is .local, some time not, so remove it for osx
+        #[cfg(target_os = "macos")]
+        if name.ends_with(".local") {
+            name = name.trim_end_matches(".local").to_owned();
+        }
+        name
+    }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     return DEVICE_NAME.lock().unwrap().clone();
 }
@@ -1464,6 +1473,102 @@ impl ClipboardContext {
     pub fn set_text<'a, T: Into<Cow<'a, str>>>(&mut self, text: T) -> ResultType<()> {
         self.0.set_text(text)?;
         Ok(())
+    }
+}
+
+pub fn load_custom_client() {
+    let Ok(cmd) = std::env::current_exe() else {
+        return;
+    };
+    let Some(path) = cmd.parent().map(|x| x.join("custom.txt")) else {
+        return;
+    };
+    if path.is_file() {
+        let Ok(data) = std::fs::read_to_string(&path) else {
+            log::error!("Failed to read custom client config");
+            return;
+        };
+        read_custom_client(&data);
+    }
+}
+
+pub fn read_custom_client(config: &str) {
+    let Ok(data) = decode64(config) else {
+        log::error!("Failed to decode custom client config");
+        return;
+    };
+    const KEY: &str = "5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=";
+    let Some(pk) = get_rs_pk(KEY) else {
+        log::error!("Failed to parse public key of custom client");
+        return;
+    };
+    let Ok(data) = sign::verify(&data, &pk) else {
+        log::error!("Failed to dec custom client config");
+        return;
+    };
+    let Ok(mut data) =
+        serde_json::from_slice::<std::collections::HashMap<String, serde_json::Value>>(&data)
+    else {
+        log::error!("Failed to parse custom client config");
+        return;
+    };
+    if let Some(default_settings) = data.remove("default_settings") {
+        if let Some(default_settings) = default_settings.as_object() {
+            for (k, v) in default_settings {
+                let Some(v) = v.as_str() else {
+                    continue;
+                };
+                if k.starts_with("$$") {
+                    config::DEFAULT_DISPLAY_SETTINGS
+                        .write()
+                        .unwrap()
+                        .insert(k.clone(), v[2..].to_owned());
+                } else if k.starts_with("$") {
+                    config::DEFAULT_LOCAL_SETTINGS
+                        .write()
+                        .unwrap()
+                        .insert(k.clone(), v[1..].to_owned());
+                } else {
+                    config::DEFAULT_SETTINGS
+                        .write()
+                        .unwrap()
+                        .insert(k.clone(), v.to_owned());
+                }
+            }
+        }
+    }
+    if let Some(overwrite_settings) = data.remove("overwrite_settings") {
+        if let Some(overwrite_settings) = overwrite_settings.as_object() {
+            for (k, v) in overwrite_settings {
+                let Some(v) = v.as_str() else {
+                    continue;
+                };
+                if k.starts_with("$$") {
+                    config::OVERWRITE_DISPLAY_SETTINGS
+                        .write()
+                        .unwrap()
+                        .insert(k.clone(), v[2..].to_owned());
+                } else if k.starts_with("$") {
+                    config::OVERWRITE_LOCAL_SETTINGS
+                        .write()
+                        .unwrap()
+                        .insert(k.clone(), v[1..].to_owned());
+                } else {
+                    config::OVERWRITE_SETTINGS
+                        .write()
+                        .unwrap()
+                        .insert(k.clone(), v.to_owned());
+                }
+            }
+        }
+    }
+    for (k, v) in data {
+        if let Some(v) = v.as_str() {
+            config::HARD_SETTINGS
+                .write()
+                .unwrap()
+                .insert(k, v.to_owned());
+        };
     }
 }
 
