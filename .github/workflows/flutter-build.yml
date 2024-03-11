@@ -100,6 +100,9 @@ jobs:
         with:
           prefix-key: ${{ matrix.job.os }}
 
+      - name: Remove existing cache directory
+        run: rm -rf /c/Users/runneradmin/.pub-cache/git/cache/dynamic_layouts-c0a747889056370e4f68a800421b3d8e82481a94 
+
       - name: Install flutter rust bridge deps
         run: |
           git config --global core.longpaths true
