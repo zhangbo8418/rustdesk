@@ -37,7 +37,7 @@ env:
 
 jobs:
   build-RustDeskTempTopMostWindow:
-    uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
+    uses: rustdesk/.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
       upload-artifact: ${{ inputs.upload-artifact }}
       target: windows-2019
@@ -502,7 +502,7 @@ jobs:
             rustdesk*-${{ matrix.job.arch }}.dmg
 
   generate-bridge-linux:
-    uses: ./.github/workflows/bridge.yml
+    uses: rustdesk/.github/workflows/bridge.yml
 
   build-rustdesk-ios:
     if: ${{ inputs.upload-artifact }}
