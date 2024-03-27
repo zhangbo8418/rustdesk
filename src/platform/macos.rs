@@ -17,7 +17,7 @@ use core_graphics::{
     display::{kCGNullWindowID, kCGWindowListOptionOnScreenOnly, CGWindowListCopyWindowInfo},
     window::{kCGWindowName, kCGWindowOwnerPID},
 };
-use hbb_common::{allow_err, anyhow::anyhow, bail, libc, log, message_proto::Resolution};
+use hbb_common::{anyhow::anyhow, bail, log, message_proto::Resolution};
 use include_dir::{include_dir, Dir};
 use objc::{class, msg_send, sel, sel_impl};
 use scrap::{libc::c_void, quartz::ffi::*};
@@ -219,7 +219,7 @@ fn correct_app_name(s: &str) -> String {
     s
 }
 
-pub fn uninstall_service(show_new_window: bool) -> bool {
+pub fn uninstall_service(show_new_window: bool, sync: bool) -> bool {
     // to-do: do together with win/linux about refactory start/stop service
     if !is_installed_daemon(false) {
         return false;
@@ -232,7 +232,7 @@ pub fn uninstall_service(show_new_window: bool) -> bool {
         return false;
     };
 
-    std::thread::spawn(move || {
+    let func = move || {
         match std::process::Command::new("osascript")
             .arg("-e")
             .arg(script_body)
@@ -275,7 +275,12 @@ pub fn uninstall_service(show_new_window: bool) -> bool {
                 }
             }
         }
-    });
+    };
+    if sync {
+        func();
+    } else {
+        std::thread::spawn(func);
+    }
     true
 }
 
@@ -481,43 +486,21 @@ pub fn lock_screen() {
 pub fn start_os_service() {
     crate::platform::macos::hide_dock();
     let exe = std::env::current_exe().unwrap_or_default();
-    let tm0 = hbb_common::get_modified_time(&exe);
     log::info!("Username: {}", crate::username());
     log::info!("Startime: {:?}", get_server_start_time());
 
     std::thread::spawn(move || loop {
         loop {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let now = hbb_common::get_modified_time(&exe);
-            let file_updated = now != tm0 && now != std::time::UNIX_EPOCH;
+            std::thread::sleep(std::time::Duration::from_secs(1));
             let Some(start_time) = get_server_start_time() else {
                 continue;
             };
-            let dt = start_time.1 - start_time.0;
-            if file_updated || dt >= 0 {
-                // sleep a while to wait for resources file ready
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                if file_updated {
-                    log::info!("{:?} updated, will restart", exe);
-                }
-                if dt >= 0 {
-                    // I tried add delegate (using tao and with its main loop0, but it works in normal mode, but not work as daemon
-                    log::info!(
-                        "Agent start later, {:?}, will restart to make delegate work",
-                        start_time
-                    );
-                }
-                for pid in start_time.2 {
-                    unsafe {
-                        libc::kill(pid.as_u32() as _, libc::SIGTERM);
-                    }
-                }
-                // https://emorydunn.github.io/LaunchAgent/Classes/LaunchAgent.html#/s:11LaunchAgentAAC16throttleIntervalSiSgvp,
-                // by default, ThrottleInterval = 10, we changed it to 1
-                if dt >= 0 {
-                    std::thread::sleep(std::time::Duration::from_secs(dt.clamp(3, 30) as _));
-                }
-                log::info!("The others killed");
+            if start_time.0 <= start_time.1 {
+                // I tried add delegate (using tao and with its main loop0, but it works in normal mode, but not work as daemon
+                log::info!(
+                    "Agent start later, {:?}, will restart --service to make delegate work",
+                    start_time
+                );
                 std::process::exit(0);
             }
         }
@@ -621,7 +604,7 @@ pub fn hide_dock() {
     }
 }
 
-fn get_server_start_time() -> Option<(i64, i64, Vec<hbb_common::sysinfo::Pid>)> {
+fn get_server_start_time() -> Option<(i64, i64)> {
     use hbb_common::sysinfo::System;
     let mut sys = System::new();
     sys.refresh_processes();
@@ -636,7 +619,6 @@ fn get_server_start_time() -> Option<(i64, i64, Vec<hbb_common::sysinfo::Pid>)> 
     else {
         return None;
     };
-    let mut all = Vec::new();
     for (_, p) in sys.processes() {
         let mut cur_path = p.exe().to_path_buf();
         if let Ok(linked) = cur_path.read_link() {
@@ -648,13 +630,9 @@ fn get_server_start_time() -> Option<(i64, i64, Vec<hbb_common::sysinfo::Pid>)> 
         if p.pid().as_u32() == std::process::id() {
             continue;
         }
-        all.push(p);
-    }
-    for p in all.iter() {
         let parg = if p.cmd().len() <= 1 { "" } else { &p.cmd()[1] };
-        let pids = all.iter().map(|p| p.pid()).collect();
         if parg == "--server" {
-            return Some((my_start_time as _, p.start_time() as _, pids));
+            return Some((my_start_time as _, p.start_time() as _));
         }
     }
     None

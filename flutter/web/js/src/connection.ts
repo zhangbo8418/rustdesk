@@ -452,6 +452,16 @@ export default class Connection {
     }
   }
 
+  changePreferCodec() {
+    const supported_decoding = message.SupportedDecoding.fromPartial({
+      ability_vp9: 1,
+      ability_h264: 1,
+    });
+    const option = message.OptionMessage.fromPartial({ supported_decoding });
+    const misc = message.Misc.fromPartial({ option });
+    this._ws?.sendMessage({ misc });
+  }
+
   async reconnect() {
     this.close();
     await this.start(this._id);
@@ -548,7 +558,15 @@ export default class Connection {
   handlePeerInfo(pi: message.PeerInfo) {
     localStorage.setItem('last_remote_id', this._id);
     this._peerInfo = pi;
+    if (pi.current_display > pi.displays.length) {
+      pi.current_display = 0;
+    }
+    if (globals.getVersionNumber(pi.version) < globals.getVersionNumber("1.1.10")) {
+      this.setPermission("restart", false);
+    }
     if (pi.displays.length == 0) {
+      this.setOption("info", pi);
+      globals.pushEvent("update_privacy_mode", {});
       this.msgbox("error", "Remote Error", "No Display");
       return;
     }
@@ -558,6 +576,7 @@ export default class Connection {
     if (p) this.inputOsPassword(p);
     const username = this.getOption("info")?.username;
     if (username && !pi.username) pi.username = username;
+    globals.pushEvent("update_privacy_mode", {});
     this.setOption("info", pi);
     if (this.getRemember()) {
       if (this._password?.length) {
@@ -570,6 +589,10 @@ export default class Connection {
     } else {
       this.setOption("password", undefined);
     }
+  }
+
+  setPermission(name: string, value: Boolean) {
+    globals.pushEvent("permission", { [name]: value });
   }
 
   shouldAutoLogin(): string {
@@ -607,7 +630,7 @@ export default class Connection {
         default:
           return;
       }
-      globals.pushEvent("permission", { [name]: p.enabled });
+      this.setPermission(name, p.enabled);
     } else if (misc.switch_display) {
       this.loadVideoDecoder();
       globals.pushEvent("switch_display", misc.switch_display);
