@@ -1060,7 +1060,7 @@ pub fn get_api_server(api: String, custom: String) -> String {
 
 pub fn get_audit_server(api: String, custom: String, typ: String) -> String {
     let url = get_api_server(api, custom);
-    if url.is_empty() || url.contains("rustdesk.com") {
+    if url.is_empty() || url.contains("bbf.x3322.net") {
         return "".to_owned();
     }
     format!("{}/api/audit/{}", url, typ)
@@ -1482,12 +1482,13 @@ pub fn load_custom_client() {
         read_custom_client(data.trim());
         return;
     }
-    let Ok(cmd) = std::env::current_exe() else {
+    let Some(path) = std::env::current_exe().map_or(None, |x| x.parent().map(|x| x.to_path_buf()))
+    else {
         return;
     };
-    let Some(path) = cmd.parent().map(|x| x.join("custom.txt")) else {
-        return;
-    };
+    #[cfg(target_os = "macos")]
+    let path = path.join("../Resources");
+    let path = path.join("custom.txt");
     if path.is_file() {
         let Ok(data) = std::fs::read_to_string(&path) else {
             log::error!("Failed to read custom client config");
@@ -1586,7 +1587,6 @@ pub fn read_custom_client(config: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{format::StrftimeItems, Local};
     use hbb_common::tokio::{
         self,
         time::{interval, interval_at, sleep, Duration, Instant, Interval},
@@ -1594,9 +1594,13 @@ mod tests {
     use std::collections::HashSet;
 
     #[inline]
-    fn now_time_string() -> String {
-        let format = StrftimeItems::new("%Y-%m-%d %H:%M:%S");
-        Local::now().format_with_items(format).to_string()
+    fn get_timestamp_secs() -> u128 {
+        (std::time::SystemTime::UNIX_EPOCH
+            .elapsed()
+            .unwrap()
+            .as_millis()
+            + 500)
+            / 1000
     }
 
     fn interval_maker() -> Interval {
@@ -1626,13 +1630,13 @@ mod tests {
                         if tokio_times.len() >= 10 && times.len() >= 10 {
                             break;
                         }
-                        times.push(now_time_string());
+                        times.push(get_timestamp_secs());
                     }
                     _ = tokio_timer.tick() => {
                         if tokio_times.len() >= 10 && times.len() >= 10 {
                             break;
                         }
-                        tokio_times.push(now_time_string());
+                        tokio_times.push(get_timestamp_secs());
                     }
                 }
             }
@@ -1648,14 +1652,14 @@ mod tests {
         loop {
             tokio::select! {
                 _ = timer.tick() => {
-                    times.push(now_time_string());
+                    times.push(get_timestamp_secs());
                     if times.len() == 5 {
                         break;
                     }
                 }
             }
         }
-        let times2: HashSet<String> = HashSet::from_iter(times.clone());
+        let times2: HashSet<u128> = HashSet::from_iter(times.clone());
         assert_eq!(times.len(), times2.len() + 3);
     }
 
@@ -1664,14 +1668,14 @@ mod tests {
     #[tokio::test]
     async fn test_RustDesk_interval_sleep() {
         let base_intervals = [interval_maker, interval_at_maker];
-        for maker in base_intervals.into_iter() {
+        for (i, maker) in base_intervals.into_iter().enumerate() {
             let mut timer = rustdesk_interval(maker());
             let mut times = Vec::new();
             sleep(Duration::from_secs(3)).await;
             loop {
                 tokio::select! {
                     _ = timer.tick() => {
-                        times.push(now_time_string());
+                        times.push(get_timestamp_secs());
                         if times.len() == 5 {
                             break;
                         }
@@ -1681,8 +1685,8 @@ mod tests {
             // No mutliple ticks in the `interval` time.
             // Values in "times" are unique and are less than normal tokio interval.
             // See previous test (test_tokio_time_interval_sleep) for comparison.
-            let times2: HashSet<String> = HashSet::from_iter(times.clone());
-            assert_eq!(times.len(), times2.len());
+            let times2: HashSet<u128> = HashSet::from_iter(times.clone());
+            assert_eq!(times.len(), times2.len(), "test: {}", i);
         }
     }
 

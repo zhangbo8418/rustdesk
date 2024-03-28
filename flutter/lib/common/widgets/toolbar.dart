@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -95,7 +94,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
           Text(translate(pi.isHeadless ? 'OS Account' : 'OS Password')),
         ]),
         trailingIcon: Transform.scale(
-          scale: isDesktop ? 0.8 : 1,
+          scale: (isDesktop || isWebDesktop) ? 0.8 : 1,
           child: IconButton(
             onPressed: () {
               if (isMobile && Navigator.canPop(context)) {
@@ -161,7 +160,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     );
   }
   // divider
-  if (isDesktop) {
+  if (isDesktop || isWebDesktop) {
     v.add(TTextMenu(child: Offstage(), onPressed: () {}, divider: true));
   }
   // ctrlAltDel
@@ -230,7 +229,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     ));
   }
   // record
-  if (!isDesktop &&
+  if (!(isDesktop || isWeb) &&
       (ffi.recordingModel.start || (perms["recording"] != false))) {
     v.add(TTextMenu(
         child: Row(
@@ -251,7 +250,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
         onPressed: () => ffi.recordingModel.toggle()));
   }
   // fingerprint
-  if (!isDesktop) {
+  if (!(isDesktop || isWebDesktop)) {
     v.add(TTextMenu(
       child: Text(translate('Copy Fingerprint')),
       onPressed: () => onCopyFingerprint(FingerprintState.find(id).value),
@@ -512,8 +511,8 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         child: Text(translate('Show displays as individual windows'))));
   }
 
-  final screenList = await getScreenRectList();
-  if (useTextureRender && pi.isSupportMultiDisplay && screenList.length > 1) {
+  final isMultiScreens = !isWeb && (await getScreenRectList()).length > 1;
+  if (useTextureRender && pi.isSupportMultiDisplay && isMultiScreens) {
     final value = bind.sessionGetUseAllMyDisplaysForTheRemoteSession(
             sessionId: ffi.sessionId) ==
         'Y';
@@ -633,8 +632,8 @@ List<TToggleMenu> toolbarKeyboardToggles(FFI ffi) {
 
   // swap key
   if (ffiModel.keyboard &&
-      ((Platform.isMacOS && pi.platform != kPeerPlatformMacOS) ||
-          (!Platform.isMacOS && pi.platform == kPeerPlatformMacOS))) {
+      ((isMacOS && pi.platform != kPeerPlatformMacOS) ||
+          (!isMacOS && pi.platform == kPeerPlatformMacOS))) {
     final option = 'allow_swap_key';
     final value =
         bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);

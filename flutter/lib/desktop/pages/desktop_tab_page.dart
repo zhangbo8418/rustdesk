@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -57,10 +55,10 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
     if (bind.isIncomingOnly()) {
       tabController.onSelected = (key) {
         if (key == kTabLabelHomePage) {
-          windowManager.setSize(getDesktopQsHomeSize());
+          windowManager.setSize(getIncomingOnlyHomeSize());
           windowManager.setResizable(false);
         } else {
-          windowManager.setSize(getDesktopQsSettingsSize());
+          windowManager.setSize(getIncomingOnlySettingsSize());
           windowManager.setResizable(true);
         }
       };
@@ -81,7 +79,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             body: DesktopTab(
               controller: tabController,
               tail: Offstage(
-                offstage: bind.isIncomingOnly(),
+                offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
                 child: ActionIcon(
                   message: 'Settings',
                   icon: IconFont.menu,
@@ -90,7 +88,7 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
                 ),
               ),
             )));
-    return Platform.isMacOS || kUseCompatibleUiMode
+    return isMacOS || kUseCompatibleUiMode
         ? tabWidget
         : Obx(
             () => DragToResizeArea(

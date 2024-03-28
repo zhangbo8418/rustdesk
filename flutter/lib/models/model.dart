@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -9,7 +8,6 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/generated_bridge.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_hbb/models/cm_file_model.dart';
@@ -38,6 +36,9 @@ import '../utils/image.dart' as img;
 import '../common/widgets/dialog.dart';
 import 'input_model.dart';
 import 'platform_model.dart';
+
+import 'package:flutter_hbb/generated_bridge.dart'
+    if (dart.library.html) 'package:flutter_hbb/web/bridge.dart';
 
 typedef HandleMsgBox = Function(Map<String, dynamic> evt, String id);
 typedef ReconnectHandle = Function(OverlayDialogManager, SessionID, bool);
@@ -355,10 +356,8 @@ class FfiModel with ChangeNotifier {
           final id = evt['id'];
           final password = evt['password'];
           if (id != null && password != null) {
-            if (gFFI.abModel
-                .changePassword(id.toString(), password.toString())) {
-              gFFI.abModel.pushAb(toastIfFail: false, toastIfSucc: false);
-            }
+            gFFI.abModel
+                .changePersonalHashPassword(id.toString(), password.toString());
           }
         }
       } else if (name == "cm_file_transfer_log") {
@@ -430,7 +429,7 @@ class FfiModel with ChangeNotifier {
   }
 
   handleAliasChanged(Map<String, dynamic> evt) {
-    if (!isDesktop) return;
+    if (!(isDesktop || isWebDesktop)) return;
     final String peerId = evt['id'];
     final String alias = evt['alias'];
     String label = getDesktopTabLabel(peerId, alias);
@@ -691,7 +690,7 @@ class FfiModel with ChangeNotifier {
     // Because this function is asynchronous, there's an "await" in this function.
     cachedPeerData.peerInfo = {...evt};
 
-    // recent peer updated by handle_peer_info(ui_session_interface.rs) --> handle_peer_info(client.rs) --> save_config(client.rs)
+    // Recent peer is updated by handle_peer_info(ui_session_interface.rs) --> handle_peer_info(client.rs) --> save_config(client.rs)
     bind.mainLoadRecentPeers();
 
     parent.target?.dialogManager.dismissAll();
@@ -768,7 +767,7 @@ class FfiModel with ChangeNotifier {
     _pi.isSet.value = true;
     stateGlobal.resetLastResolutionGroupValues(peerId);
 
-    if (isDesktop) {
+    if (isDesktop || isWebDesktop) {
       checkDesktopKeyboardMode();
     }
 
@@ -869,7 +868,16 @@ class FfiModel with ChangeNotifier {
 
   handleResolutions(String id, dynamic resolutions) {
     try {
-      final List<dynamic> dynamicArray = jsonDecode(resolutions as String);
+      final resolutionsObj = json.decode(resolutions as String);
+      late List<dynamic> dynamicArray;
+      if (resolutionsObj is Map) {
+        // The web version
+        dynamicArray = (resolutionsObj as Map<String, dynamic>)['resolutions']
+            as List<dynamic>;
+      } else {
+        // The rust version
+        dynamicArray = resolutionsObj as List<dynamic>;
+      }
       List<Resolution> arr = List.empty(growable: true);
       for (int i = 0; i < dynamicArray.length; i++) {
         var width = dynamicArray[i]["width"];
@@ -1106,7 +1114,7 @@ class ImageModel with ChangeNotifier {
 
   update(ui.Image? image) async {
     if (_image == null && image != null) {
-      if (isWebDesktop || isDesktop) {
+      if (isDesktop || isWebDesktop) {
         await parent.target?.canvasModel.updateViewStyle();
         await parent.target?.canvasModel.updateScrollStyle();
       } else {
@@ -1280,18 +1288,15 @@ class CanvasModel with ChangeNotifier {
   double get scrollX => _scrollX;
   double get scrollY => _scrollY;
 
-  static double get leftToEdge => (isDesktop || isWebDesktop)
-      ? windowBorderWidth + kDragToResizeAreaPadding.left
-      : 0;
-  static double get rightToEdge => (isDesktop || isWebDesktop)
-      ? windowBorderWidth + kDragToResizeAreaPadding.right
-      : 0;
-  static double get topToEdge => (isDesktop || isWebDesktop)
+  static double get leftToEdge =>
+      isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.left : 0;
+  static double get rightToEdge =>
+      isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.right : 0;
+  static double get topToEdge => isDesktop
       ? tabBarHeight + windowBorderWidth + kDragToResizeAreaPadding.top
       : 0;
-  static double get bottomToEdge => (isDesktop || isWebDesktop)
-      ? windowBorderWidth + kDragToResizeAreaPadding.bottom
-      : 0;
+  static double get bottomToEdge =>
+      isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.bottom : 0;
 
   updateViewStyle({refreshMousePos = true}) async {
     Size getSize() {
@@ -1414,7 +1419,7 @@ class CanvasModel with ChangeNotifier {
     // If keyboard is not permitted, do not move cursor when mouse is moving.
     if (parent.target != null && parent.target!.ffiModel.keyboard) {
       // Draw cursor if is not desktop.
-      if (!isDesktop) {
+      if (!(isDesktop || isWebDesktop)) {
         parent.target!.cursorModel.moveLocal(x, y);
       } else {
         try {
@@ -1537,7 +1542,7 @@ class CursorData {
     }
 
     if (_doubleToInt(oldScale) != _doubleToInt(scale)) {
-      if (Platform.isWindows) {
+      if (isWindows) {
         data = img2
             .copyResize(
               image,
@@ -1616,7 +1621,7 @@ class PredefinedCursor {
             data, defaultImg.width, defaultImg.height, ui.PixelFormat.rgba8888);
 
         double scale = 1.0;
-        if (Platform.isWindows) {
+        if (isWindows) {
           data = _image2!.getBytes(order: img2.ChannelOrder.bgra);
         } else {
           data = Uint8List.fromList(img2.encodePng(_image2!));
@@ -1841,7 +1846,7 @@ class CursorModel with ChangeNotifier {
     Uint8List? data;
     img2.Image imgOrigin = img2.Image.fromBytes(
         width: w, height: h, bytes: rgba.buffer, order: img2.ChannelOrder.rgba);
-    if (Platform.isWindows) {
+    if (isWindows) {
       data = imgOrigin.getBytes(order: img2.ChannelOrder.bgra);
     } else {
       ByteData? imgBytes =
@@ -2179,6 +2184,7 @@ class FFI {
     bool isRdp = false,
     String? switchUuid,
     String? password,
+    bool? isSharedPassword,
     bool? forceRelay,
     int? tabWindowId,
     int? display,
@@ -2199,6 +2205,7 @@ class FFI {
       imageModel.id = id;
       cursorModel.peerId = id;
     }
+
     // If tabWindowId != null, this session is a "tab -> window" one.
     // Else this session is a new one.
     if (tabWindowId == null) {
@@ -2212,6 +2219,7 @@ class FFI {
         switchUuid: switchUuid ?? '',
         forceRelay: forceRelay ?? false,
         password: password ?? '',
+        isSharedPassword: isSharedPassword ?? false,
       );
     } else if (display != null) {
       if (displays == null) {
@@ -2233,6 +2241,14 @@ class FFI {
       textureModel.updateCurrentDisplay(display ?? 0);
     }
     final stream = bind.sessionStart(sessionId: sessionId, id: id);
+    if (isWeb) {
+      platformFFI.setRgbaCallback((int display, Uint8List data) {
+        onEvent2UIRgba();
+        imageModel.onRgba(display, data);
+      });
+      return;
+    }
+
     final cb = ffiModel.startEventListener(sessionId, id);
 
     // Force refresh displays.
@@ -2476,7 +2492,8 @@ class PeerInfo with ChangeNotifier {
   List<int> get virtualDisplays => List<int>.from(
       platformAdditions[kPlatformAdditionsVirtualDisplays] ?? []);
 
-  bool get isSupportMultiDisplay => isDesktop && isSupportMultiUiSession;
+  bool get isSupportMultiDisplay =>
+      (isDesktop || isWebDesktop) && isSupportMultiUiSession;
 
   bool get cursorEmbedded => tryGetDisplay()?.cursorEmbedded ?? false;
 

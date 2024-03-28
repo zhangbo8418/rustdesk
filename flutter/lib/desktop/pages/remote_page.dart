@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
@@ -36,15 +35,16 @@ class RemotePage extends StatefulWidget {
   RemotePage({
     Key? key,
     required this.id,
-    required this.sessionId,
-    required this.tabWindowId,
-    required this.display,
-    required this.displays,
-    required this.password,
     required this.toolbarState,
-    required this.tabController,
+    this.sessionId,
+    this.tabWindowId,
+    this.password,
+    this.display,
+    this.displays,
+    this.tabController,
     this.switchUuid,
     this.forceRelay,
+    this.isSharedPassword,
   }) : super(key: key);
 
   final String id;
@@ -56,8 +56,9 @@ class RemotePage extends StatefulWidget {
   final ToolbarState toolbarState;
   final String? switchUuid;
   final bool? forceRelay;
+  final bool? isSharedPassword;
   final SimpleWrapper<State<RemotePage>?> _lastState = SimpleWrapper(null);
-  final DesktopTabController tabController;
+  final DesktopTabController? tabController;
 
   FFI get ffi => (_lastState.value! as _RemotePageState)._ffi;
 
@@ -111,6 +112,7 @@ class _RemotePageState extends State<RemotePage>
     _ffi.start(
       widget.id,
       password: widget.password,
+      isSharedPassword: widget.isSharedPassword,
       switchUuid: widget.switchUuid,
       forceRelay: widget.forceRelay,
       tabWindowId: widget.tabWindowId,
@@ -122,12 +124,12 @@ class _RemotePageState extends State<RemotePage>
       _ffi.dialogManager
           .showLoading(translate('Connecting...'), onCancel: closeConnection);
     });
-    if (!Platform.isLinux) {
+    if (!isLinux) {
       WakelockPlus.enable();
     }
 
     _ffi.ffiModel.updateEventListener(sessionId, widget.id);
-    bind.pluginSyncUi(syncTo: kAppTypeDesktopRemote);
+    if (!isWeb) bind.pluginSyncUi(syncTo: kAppTypeDesktopRemote);
     _ffi.qualityMonitorModel.checkShowQualityMonitor(sessionId);
     // Session option should be set after models.dart/FFI.start
     _showRemoteCursor.value = bind.sessionGetToggleOptionSync(
@@ -148,7 +150,7 @@ class _RemotePageState extends State<RemotePage>
     // }
 
     _blockableOverlayState.applyFfi(_ffi);
-    widget.tabController.onSelected?.call(widget.id);
+    widget.tabController?.onSelected?.call(widget.id);
   }
 
   @override
@@ -157,7 +159,7 @@ class _RemotePageState extends State<RemotePage>
     // On windows, we use `focus` way to handle keyboard better.
     // Now on Linux, there's some rdev issues which will break the input.
     // We disable the `focus` way for non-Windows temporarily.
-    if (Platform.isWindows) {
+    if (isWindows) {
       _isWindowBlur = true;
       // unfocus the primary-focus when the whole window is lost focus,
       // and let OS to handle events instead.
@@ -169,7 +171,7 @@ class _RemotePageState extends State<RemotePage>
   void onWindowFocus() {
     super.onWindowFocus();
     // See [onWindowBlur].
-    if (Platform.isWindows) {
+    if (isWindows) {
       _isWindowBlur = false;
     }
   }
@@ -179,10 +181,10 @@ class _RemotePageState extends State<RemotePage>
     super.onWindowRestore();
     // On windows, we use `onWindowRestore` way to handle window restore from
     // a minimized state.
-    if (Platform.isWindows) {
+    if (isWindows) {
       _isWindowBlur = false;
     }
-    if (!Platform.isLinux) {
+    if (!isLinux) {
       WakelockPlus.enable();
     }
   }
@@ -191,7 +193,7 @@ class _RemotePageState extends State<RemotePage>
   @override
   void onWindowMaximize() {
     super.onWindowMaximize();
-    if (!Platform.isLinux) {
+    if (!isLinux) {
       WakelockPlus.enable();
     }
   }
@@ -199,7 +201,7 @@ class _RemotePageState extends State<RemotePage>
   @override
   void onWindowMinimize() {
     super.onWindowMinimize();
-    if (!Platform.isLinux) {
+    if (!isLinux) {
       WakelockPlus.disable();
     }
   }
@@ -225,7 +227,7 @@ class _RemotePageState extends State<RemotePage>
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
           overlays: SystemUiOverlay.values);
     }
-    if (!Platform.isLinux) {
+    if (!isLinux) {
       await WakelockPlus.disable();
     }
     await Get.delete<FFI>(tag: widget.id);
@@ -263,7 +265,7 @@ class _RemotePageState extends State<RemotePage>
                     debugPrint(
                         "onFocusChange(window active:${!_isWindowBlur}) $imageFocused");
                     // See [onWindowBlur].
-                    if (Platform.isWindows) {
+                    if (isWindows) {
                       if (_isWindowBlur) {
                         imageFocused = false;
                         Future.delayed(Duration.zero, () {
@@ -359,7 +361,7 @@ class _RemotePageState extends State<RemotePage>
       }
     }
     // See [onWindowBlur].
-    if (!Platform.isWindows) {
+    if (!isWindows) {
       if (!_rawKeyFocusNode.hasFocus) {
         _rawKeyFocusNode.requestFocus();
       }
@@ -382,7 +384,7 @@ class _RemotePageState extends State<RemotePage>
       }
     }
     // See [onWindowBlur].
-    if (!Platform.isWindows) {
+    if (!isWindows) {
       _ffi.inputModel.enterOrLeave(false);
     }
   }
@@ -429,9 +431,9 @@ class _RemotePageState extends State<RemotePage>
   Widget getBodyForDesktop(BuildContext context) {
     var paints = <Widget>[
       MouseRegion(onEnter: (evt) {
-        bind.hostStopSystemKeyPropagate(stopped: false);
+        if (!isWeb) bind.hostStopSystemKeyPropagate(stopped: false);
       }, onExit: (evt) {
-        bind.hostStopSystemKeyPropagate(stopped: true);
+        if (!isWeb) bind.hostStopSystemKeyPropagate(stopped: true);
       }, child: LayoutBuilder(builder: (context, constraints) {
         Future.delayed(Duration.zero, () {
           Provider.of<CanvasModel>(context, listen: false).updateViewStyle();
@@ -534,7 +536,7 @@ class _ImagePaintState extends State<ImagePaint> {
           double getCursorScale() {
             var c = Provider.of<CanvasModel>(context);
             var cursorScale = 1.0;
-            if (Platform.isWindows) {
+            if (isWindows) {
               // debug win10
               if (zoomCursor.value && isViewAdaptive()) {
                 cursorScale = s * c.devicePixelRatio;
@@ -601,8 +603,8 @@ class _ImagePaintState extends State<ImagePaint> {
                 c,
                 s,
                 Offset(
-                  Platform.isLinux ? c.x.toInt().toDouble() : c.x,
-                  Platform.isLinux ? c.y.toInt().toDouble() : c.y,
+                  isLinux ? c.x.toInt().toDouble() : c.x,
+                  isLinux ? c.y.toInt().toDouble() : c.y,
                 ),
                 c.size,
                 isViewOriginal())
@@ -667,6 +669,11 @@ class _ImagePaintState extends State<ImagePaint> {
 
   MouseCursor _buildCursorOfCache(
       CursorModel cursor, double scale, CursorData? cache) {
+    // TODO: web cursor
+    if (isWeb) {
+      return MouseCursor.defer;
+    }
+
     if (cache == null) {
       return MouseCursor.defer;
     } else {
