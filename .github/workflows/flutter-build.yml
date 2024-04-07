@@ -119,7 +119,7 @@ jobs:
         shell: bash
         run: |
            pip3 install requests argparse
-           BASE_URL=${{ secrets.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./flutter/build/windows/x64/runner/Release
+           BASE_URL=${{ secrets.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./flutter/build/windows/runner/Release/
 
       - name: Build self-extracted executable
         shell: bash
