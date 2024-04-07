@@ -74,7 +74,7 @@ jobs:
           toolchain: "1.75"
           target: ${{ matrix.job.target }}
           override: true
-          profile: minimal # minimal component installation (ie, no documentation)
+          components: "rustfmt"
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -183,7 +183,7 @@ jobs:
           toolchain: nightly-2023-10-13-${{ matrix.job.target }}
           target: ${{ matrix.job.target }}
           override: true
-          profile: minimal # minimal component installation (ie, no documentation)
+          components: "rustfmt"
 
       - uses: Swatinem/rust-cache@v2
         with:
