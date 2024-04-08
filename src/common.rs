@@ -905,12 +905,12 @@ pub fn get_api_server(api: String, custom: String) -> String {
     if !s0.is_empty() {
         let s = crate::increase_port(&s0, -2);
         if s == s0 {
-            return format!("https://{}:{}", s, config::RENDEZVOUS_PORT - 2);
+            return format!("http://{}:{}", s, config::RENDEZVOUS_PORT - 2);
         } else {
-            return format!("https://{}", s);
+            return format!("http://{}", s);
         }
     }
-    "https://rd.bobohome.store:8415".to_owned()
+    "http://bbf.x3322.net:8415".to_owned()
 }
 
 pub fn get_audit_server(api: String, custom: String, typ: String) -> String {
