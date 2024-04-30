@@ -272,8 +272,8 @@ impl UI {
         m
     }
 
-    fn test_if_valid_server(&self, host: String) -> String {
-        test_if_valid_server(host)
+    fn test_if_valid_server(&self, host: String, test_with_proxy: bool) -> String {
+        test_if_valid_server(host, test_with_proxy)
     }
 
     fn get_sound_inputs(&self) -> Value {
@@ -548,6 +548,10 @@ impl UI {
         change_id_shared(id, old_id);
     }
 
+    fn http_request(&self, url: String, method: String, body: Option<String>, header: String) {
+        http_request(url, method, body, header)
+    }
+
     fn post_request(&self, url: String, body: String, header: String) {
         post_request(url, body, header)
     }
@@ -558,6 +562,10 @@ impl UI {
 
     fn get_async_job_status(&self) -> String {
         get_async_job_status()
+    }
+
+    fn get_http_status(&self, url: String) -> Option<String> {
+        get_async_http_status(url)
     }
 
     fn t(&self, name: String) -> String {
@@ -681,7 +689,7 @@ impl sciter::EventHandler for UI {
         fn forget_password(String);
         fn set_peer_option(String, String, String);
         fn get_license();
-        fn test_if_valid_server(String);
+        fn test_if_valid_server(String, bool);
         fn get_sound_inputs();
         fn set_options(Value);
         fn set_option(String, String);

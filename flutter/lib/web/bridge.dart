@@ -346,6 +346,10 @@ class RustdeskImpl {
     return mode == kKeyLegacyMode;
   }
 
+  bool sessionIsMultiUiSession({required UuidValue sessionId, dynamic hint}) {
+    return false;
+  }
+
   Future<void> sessionSetCustomImageQuality(
       {required UuidValue sessionId, required int value, dynamic hint}) {
     return Future(() => js.context.callMethod('setByName', [
@@ -676,7 +680,8 @@ class RustdeskImpl {
     return Future(() => js.context.callMethod('setByName', ['options', json]));
   }
 
-  Future<String> mainTestIfValidServer({required String server, dynamic hint}) {
+  Future<String> mainTestIfValidServer(
+      {required String server, required bool testWithProxy, dynamic hint}) {
     // TODO: implement
     return Future.value('');
   }
@@ -767,6 +772,24 @@ class RustdeskImpl {
       required String body,
       required String header,
       dynamic hint}) {
+    throw UnimplementedError();
+  }
+
+  Future<bool> mainGetProxyStatus({dynamic hint}) {
+    return Future(() => false);
+  }
+
+  Future<void> mainHttpRequest({
+    required String url,
+    required String method,
+    String? body,
+    required String header,
+    dynamic hint,
+  }) {
+    throw UnimplementedError();
+  }
+
+  Future<String?> mainGetHttpStatus({required String url, dynamic hint}) {
     throw UnimplementedError();
   }
 
