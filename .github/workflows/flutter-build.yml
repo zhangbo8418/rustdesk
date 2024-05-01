@@ -1184,6 +1184,7 @@ jobs:
 
   build-rustdesk-sciter-arm:
     if: ${{ inputs.upload-artifact }}
+    needs: build-rustdesk-lib-linux # not for dep, just make it run later for parallelism
     runs-on: [self-hosted, Linux, ARM64]
     name: build-rustdesk-sciter-arm ${{ matrix.job.target }}
     strategy:
@@ -1571,7 +1572,7 @@ jobs:
           sed -i "s/x86_64/${{ matrix.job.arch }}/g" res/PKGBUILD
           if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then
             sed -i "s/linux\/x64/linux\/arm64/g" ./res/PKGBUILD
-          end
+          fi
 
       - name: Build archlinux package
         if: matrix.job.extra-build-features == '' && env.UPLOAD_ARTIFACT == 'true'
