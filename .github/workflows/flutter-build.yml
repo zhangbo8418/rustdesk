@@ -1480,6 +1480,9 @@ jobs:
       - name: Build appimage package
         shell: bash
         run: |
+          # install libarchive-tools for bsdtar command used in AppImageBuilder.yml
+          sudo apt-get update -y
+          sudo apt-get install -y libarchive-tools
           # set-up appimage-builder
           pushd /tmp
           wget -O appimage-builder-x86_64.AppImage https://github.com/AppImageCrafters/appimage-builder/releases/download/v1.1.0/appimage-builder-1.1.0-x86_64.AppImage
