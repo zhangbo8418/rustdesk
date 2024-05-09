@@ -607,7 +607,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Follow remote window focus", "Segui focus finestra remota"),
         ("default_proxy_tip", "Protocollo e porta predefiniti sono Socks5 e 1080"),
         ("no_audio_input_device_tip", "Nessun dispositivo input audio trovato."),
-        ("Incoming", ""),
-        ("Outgoing", ""),
+        ("Incoming", "In entrata"),
+        ("Outgoing", "In uscita"),
+        ("Clear Wayland screen selection", ""),
+        ("clear_Wayland_screen_selection_tip", ""),
+        ("confirm_clear_Wayland_screen_selection_tip", ""),
     ].iter().cloned().collect();
 }

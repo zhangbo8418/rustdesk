@@ -605,9 +605,12 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("no_need_privacy_mode_no_physical_displays_tip", "Nav fizisku displeju, nav jāizmanto privātuma režīms."),
         ("Follow remote cursor", "Sekot attālajam kursoram"),
         ("Follow remote window focus", "Sekot attālā loga fokusam"),
-        ("default_proxy_tip", ""),
-        ("no_audio_input_device_tip", ""),
-        ("Incoming", ""),
-        ("Outgoing", ""),
+        ("default_proxy_tip", "Noklusējuma protokols un ports ir Socks5 un 1080"),
+        ("no_audio_input_device_tip", "Nav atrasta neviena audio ievades ierīce."),
+        ("Incoming", "Ienākošie"),
+        ("Outgoing", "Izejošie"),
+        ("Clear Wayland screen selection", ""),
+        ("clear_Wayland_screen_selection_tip", ""),
+        ("confirm_clear_Wayland_screen_selection_tip", ""),
     ].iter().cloned().collect();
 }
