@@ -375,7 +375,7 @@ class _GeneralState extends State<_General> {
     final children = <Widget>[
       if (!bind.isIncomingOnly())
         _OptionCheckBox(context, 'Confirm before closing multiple tabs',
-            'enable-confirm-closing-tabs',
+            kOptionEnableConfirmClosingTabs,
             isServer: false),
       _OptionCheckBox(context, 'Adaptive bitrate', kOptionEnableAbr),
       wallpaper(),
@@ -390,19 +390,20 @@ class _GeneralState extends State<_General> {
         Tooltip(
           message: translate('software_render_tip'),
           child: _OptionCheckBox(context, "Always use software rendering",
-              'allow-always-software-render'),
+              kOptionAllowAlwaysSoftwareRender),
         ),
-        _OptionCheckBox(
-          context,
-          'Check for software update on startup',
-          'enable-check-update',
-          isServer: false,
-        )
+        if (!bind.isCustomClient())
+          _OptionCheckBox(
+            context,
+            'Check for software update on startup',
+            kOptionEnableCheckUpdate,
+            isServer: false,
+          )
       ],
     ];
-    if (bind.mainShowOption(key: 'allow-linux-headless')) {
+    if (bind.mainShowOption(key: kOptionAllowLinuxHeadless)) {
       children.add(_OptionCheckBox(
-          context, 'Allow linux headless', 'allow-linux-headless'));
+          context, 'Allow linux headless', kOptionAllowLinuxHeadless));
     }
     return _Card(title: 'Other', children: children);
   }
@@ -417,15 +418,14 @@ class _GeneralState extends State<_General> {
       return support;
     }(), hasData: (data) {
       if (data is bool && data == true) {
-        final option = 'allow-remove-wallpaper';
-        bool value = mainGetBoolOptionSync(option);
+        bool value = mainGetBoolOptionSync(kOptionAllowRemoveWallpaper);
         return Row(
           children: [
             Flexible(
               child: _OptionCheckBox(
                 context,
                 'Remove wallpaper during incoming sessions',
-                option,
+                kOptionAllowRemoveWallpaper,
                 update: () {
                   setState(() {});
                 },
@@ -2170,6 +2170,11 @@ void changeSocks5Proxy() async {
   var pwdController = TextEditingController(text: password);
   RxBool obscure = true.obs;
 
+  // proxy settings
+  // The following option is a not real key, it is just used for custom client advanced settings.
+  const String optionProxyUrl = "proxy-url";
+  final isOptFixed = isOptionFixed(optionProxyUrl);
+
   var isInProgress = false;
   gFFI.dialogManager.show((setState, close, context) {
     submit() async {
@@ -2247,6 +2252,7 @@ void changeSocks5Proxy() async {
                     ),
                     controller: proxyController,
                     autofocus: true,
+                    enabled: !isOptFixed,
                   ),
                 ),
               ],
@@ -2262,6 +2268,7 @@ void changeSocks5Proxy() async {
                 Expanded(
                   child: TextField(
                     controller: userController,
+                    enabled: isInProgress,
                   ),
                 ),
               ],
@@ -2284,6 +2291,7 @@ void changeSocks5Proxy() async {
                                     ? Icons.visibility_off
                                     : Icons.visibility))),
                         controller: pwdController,
+                        enabled: !isOptFixed,
                       )),
                 ),
               ],
@@ -2296,7 +2304,7 @@ void changeSocks5Proxy() async {
       ),
       actions: [
         dialogButton('Cancel', onPressed: close, isOutline: true),
-        dialogButton('OK', onPressed: submit),
+        if (!isOptFixed) dialogButton('OK', onPressed: submit),
       ],
       onSubmit: submit,
       onCancel: close,
