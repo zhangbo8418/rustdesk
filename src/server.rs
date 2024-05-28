@@ -470,6 +470,11 @@ pub async fn start_server(is_server: bool) {
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
                 log::error!("Failed to start ipc: {}", err);
+                #[cfg(all(windows, feature = "flutter"))]
+                if crate::is_server() && crate::ipc::test_ipc_connection().is_ok() {
+                    log::error!("ipc is occupied by another process, try kill it");
+                    crate::platform::try_kill_flutter_main_window_process();
+                }
                 std::process::exit(-1);
             }
         });
@@ -560,8 +565,7 @@ async fn sync_and_watch_config_dir() {
 
     let mut cfg0 = (Config::get(), Config2::get());
     let mut synced = false;
-    let is_server = std::env::args().nth(1) == Some("--server".to_owned());
-    let tries = if is_server { 30 } else { 3 };
+    let tries = if crate::is_server() { 30 } else { 3 };
     log::debug!("#tries of ipc service connection: {}", tries);
     use hbb_common::sleep;
     for i in 1..=tries {

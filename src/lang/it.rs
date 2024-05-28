@@ -564,7 +564,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Plug out all", "Scollega tutto"),
         ("True color (4:4:4)", "Colore reale (4:4:4)"),
         ("Enable blocking user input", "Abilita blocco input utente"),
-        ("id_input_tip", "Puoi inserire un ID, un IP diretto o un dominio con una porta (<dominio>:<porta>).\nSe vuoi accedere as un dispositivo in un altro server, aggiungi l'indirizzo del server (<id>@<indirizzo_server >?key=<valore_chiave>), ad esempio\n9123456234@192.168.16.1:21117?key=5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=.\nSe vuoi accedere as un dispositivo in un server pubblico, inserisci \"<id>@public\", per il server pubblico la chiave non è necessaria"),
+        ("id_input_tip", "Puoi inserire un ID, un IP diretto o un dominio con una porta (<dominio>:<porta>).\nSe vuoi accedere as un dispositivo in un altro server, aggiungi l'indirizzo del server (<id>@<indirizzo_server >?key=<valore_chiave>), ad esempio\n9123456234@192.168.16.1:21117?key=5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=.\nSe vuoi accedere as un dispositivo in un server pubblico, inserisci \"<id>@public\", per il server pubblico la chiave non è necessaria\n\nSe vuoi forzare l'uso di una connessione di inoltro alla prima connessione, aggiungi \"/r\" alla fine dell'ID, ad esempio \"9123456234/r\"."),
         ("privacy_mode_impl_mag_tip", "Modo 1"),
         ("privacy_mode_impl_virtual_display_tip", "Modo 2"),
         ("Enter privacy mode", "Entra in modalità privacy"),
@@ -605,5 +605,13 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("no_need_privacy_mode_no_physical_displays_tip", "Nessun display fisico, nessuna necessità di usare la modalità privacy."),
         ("Follow remote cursor", "Segui cursore remoto"),
         ("Follow remote window focus", "Segui focus finestra remota"),
+        ("default_proxy_tip", "Protocollo e porta predefiniti sono Socks5 e 1080"),
+        ("no_audio_input_device_tip", "Nessun dispositivo input audio trovato."),
+        ("Incoming", "In entrata"),
+        ("Outgoing", "In uscita"),
+        ("Clear Wayland screen selection", "Annulla selezione schermata Wayland"),
+        ("clear_Wayland_screen_selection_tip", "Dopo aver annullato la selezione schermo, è possibile selezionare nuovamente lo schermo da condividere."),
+        ("confirm_clear_Wayland_screen_selection_tip", "Sei sicuro di voler annullare la selezione schermo Wayland?"),
+        ("android_new_voice_call_tip", "È stata ricevuta una nuova richiesta di chiamata vocale. Se accetti, l'audio passerà alla comunicazione vocale."),
     ].iter().cloned().collect();
 }

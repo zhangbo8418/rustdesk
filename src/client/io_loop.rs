@@ -320,7 +320,7 @@ impl<T: InvokeUiSession> Remote<T> {
                     let server_file_transfer_enabled =
                         *self.handler.server_file_transfer_enabled.read().unwrap();
                     let file_transfer_enabled =
-                        self.handler.lc.read().unwrap().enable_file_transfer.v;
+                        self.handler.lc.read().unwrap().enable_file_copy_paste.v;
                     let view_only = self.handler.lc.read().unwrap().view_only.v;
                     let stop = is_stopping_allowed
                         && (view_only
@@ -1027,13 +1027,15 @@ impl<T: InvokeUiSession> Remote<T> {
                 ctl.last_auto_fps = Some(auto_fps);
             }
             // send refresh
+            let tolerable = std::cmp::min(decode_fps, video_queue.capacity() / 2);
             if ctl.refresh_times < 10 // enough
-                && (len > video_queue.capacity() / 2
-                        && (ctl.refresh_times == 0 || ctl.last_refresh_instant.elapsed().as_secs() > 30))
+                && (len > tolerable
+                        && (ctl.refresh_times == 0 || ctl.last_refresh_instant.elapsed().as_secs() > 10))
             {
                 // Refresh causes client set_display, left frames cause flickering.
                 while let Some(_) = video_queue.pop() {}
                 self.handler.refresh_video(*display as _);
+                log::info!("Refresh display {} to reduce delay", display);
                 ctl.refresh_times += 1;
                 ctl.last_refresh_instant = Instant::now();
             }
@@ -1760,7 +1762,7 @@ impl<T: InvokeUiSession> Remote<T> {
         ))]
         {
             let enabled = *self.handler.server_file_transfer_enabled.read().unwrap()
-                && self.handler.lc.read().unwrap().enable_file_transfer.v;
+                && self.handler.lc.read().unwrap().enable_file_copy_paste.v;
             ContextSend::enable(enabled);
         }
     }
@@ -1783,7 +1785,7 @@ impl<T: InvokeUiSession> Remote<T> {
         };
 
         let is_stopping_allowed = clip.is_stopping_allowed_from_peer();
-        let file_transfer_enabled = self.handler.lc.read().unwrap().enable_file_transfer.v;
+        let file_transfer_enabled = self.handler.lc.read().unwrap().enable_file_copy_paste.v;
         let stop = is_stopping_allowed && !file_transfer_enabled;
         log::debug!(
                 "Process clipboard message from server peer, stop: {}, is_stopping_allowed: {}, file_transfer_enabled: {}",

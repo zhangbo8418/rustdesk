@@ -53,7 +53,7 @@ use scrap::{
     codec::{Encoder, EncoderCfg, Quality},
     record::{Recorder, RecorderContext},
     vpxcodec::{VpxEncoderConfig, VpxVideoCodecId},
-    CodecName, Display, Frame, TraitCapturer,
+    CodecFormat, Display, EncodeInput, Frame, TraitCapturer,
 };
 #[cfg(windows)]
 use std::sync::Once;
@@ -414,24 +414,38 @@ fn run(vs: VideoService) -> ResultType<()> {
     let record_incoming = !Config::get_option("allow-auto-record-incoming").is_empty();
     let client_record = video_qos.record();
     drop(video_qos);
-    let encoder_cfg = get_encoder_config(
+    let (mut encoder, encoder_cfg, codec_format, use_i444, recorder) = match setup_encoder(
         &c,
         display_idx,
         quality,
-        client_record || record_incoming,
+        client_record,
+        record_incoming,
         last_portable_service_running,
-    );
-    Encoder::set_fallback(&encoder_cfg);
-    let codec_name = Encoder::negotiated_codec();
-    let recorder = get_recorder(c.width, c.height, &codec_name, record_incoming);
-    let mut encoder;
-    let use_i444 = Encoder::use_i444(&encoder_cfg);
-    match Encoder::new(encoder_cfg.clone(), use_i444) {
-        Ok(x) => encoder = x,
-        Err(err) => bail!("Failed to create encoder: {}", err),
-    }
+    ) {
+        Ok(result) => result,
+        Err(err) => {
+            log::error!("Failed to create encoder: {err:?}, fallback to VP9");
+            Encoder::set_fallback(&EncoderCfg::VPX(VpxEncoderConfig {
+                width: c.width as _,
+                height: c.height as _,
+                quality,
+                codec: VpxVideoCodecId::VP9,
+                keyframe_interval: None,
+            }));
+            setup_encoder(
+                &c,
+                display_idx,
+                quality,
+                client_record,
+                record_incoming,
+                last_portable_service_running,
+            )?
+        }
+    };
     #[cfg(feature = "vram")]
     c.set_output_texture(encoder.input_texture());
+    #[cfg(target_os = "android")]
+    check_change_scale(encoder.is_hardware())?;
     VIDEO_QOS.lock().unwrap().store_bitrate(encoder.bitrate());
     VIDEO_QOS
         .lock()
@@ -458,6 +472,8 @@ fn run(vs: VideoService) -> ResultType<()> {
     let mut would_block_count = 0u32;
     let mut yuv = Vec::new();
     let mut mid_data = Vec::new();
+    let mut repeat_encode_counter = 0;
+    let repeat_encode_max = 10;
 
     while sp.ok() {
         #[cfg(windows)]
@@ -468,30 +484,46 @@ fn run(vs: VideoService) -> ResultType<()> {
         if quality != video_qos.quality() {
             log::debug!("quality: {:?} -> {:?}", quality, video_qos.quality());
             quality = video_qos.quality();
-            allow_err!(encoder.set_quality(quality));
-            video_qos.store_bitrate(encoder.bitrate());
+            if encoder.support_changing_quality() {
+                allow_err!(encoder.set_quality(quality));
+                video_qos.store_bitrate(encoder.bitrate());
+            } else {
+                if !video_qos.in_vbr_state() && !quality.is_custom() {
+                    log::info!("switch to change quality");
+                    bail!("SWITCH");
+                }
+            }
         }
         if client_record != video_qos.record() {
+            log::info!("switch due to record changed");
             bail!("SWITCH");
         }
         drop(video_qos);
 
         if sp.is_option_true(OPTION_REFRESH) {
             let _ = try_broadcast_display_changed(&sp, display_idx, &c);
+            log::info!("switch to refresh");
             bail!("SWITCH");
         }
-        if codec_name != Encoder::negotiated_codec() {
+        if codec_format != Encoder::negotiated_codec() {
+            log::info!(
+                "switch due to codec changed, {:?} -> {:?}",
+                codec_format,
+                Encoder::negotiated_codec()
+            );
             bail!("SWITCH");
         }
         #[cfg(windows)]
         if last_portable_service_running != crate::portable_service::client::running() {
+            log::info!("switch due to portable service running changed");
             bail!("SWITCH");
         }
         if Encoder::use_i444(&encoder_cfg) != use_i444 {
+            log::info!("switch due to i444 changed");
             bail!("SWITCH");
         }
         #[cfg(all(windows, feature = "vram"))]
-        if c.is_gdi() && (codec_name == CodecName::H264VRAM || codec_name == CodecName::H265VRAM) {
+        if c.is_gdi() && encoder.input_texture() {
             log::info!("changed to gdi when using vram");
             bail!("SWITCH");
         }
@@ -514,17 +546,17 @@ fn run(vs: VideoService) -> ResultType<()> {
 
         frame_controller.reset();
 
+        let time = now - start;
+        let ms = (time.as_secs() * 1000 + time.subsec_millis() as u64) as i64;
         let res = match c.frame(spf) {
             Ok(frame) => {
-                let time = now - start;
-                let ms = (time.as_secs() * 1000 + time.subsec_millis() as u64) as i64;
+                repeat_encode_counter = 0;
                 if frame.valid() {
+                    let frame = frame.to(encoder.yuvfmt(), &mut yuv, &mut mid_data)?;
                     let send_conn_ids = handle_one_frame(
                         display_idx,
                         &sp,
                         frame,
-                        &mut yuv,
-                        &mut mid_data,
                         ms,
                         &mut encoder,
                         recorder.clone(),
@@ -565,6 +597,21 @@ fn run(vs: VideoService) -> ResultType<()> {
                             // super::wayland::clear();
                             // bail!("Wayland capturer none 100 times, try restart capture");
                         }
+                    }
+                }
+                if !encoder.latency_free() && yuv.len() > 0 {
+                    // yun.len() > 0 means the frame is not texture.
+                    if repeat_encode_counter < repeat_encode_max {
+                        repeat_encode_counter += 1;
+                        let send_conn_ids = handle_one_frame(
+                            display_idx,
+                            &sp,
+                            EncodeInput::YUV(&yuv),
+                            ms,
+                            &mut encoder,
+                            recorder.clone(),
+                        )?;
+                        frame_controller.set_send(now, send_conn_ids);
                     }
                 }
             }
@@ -626,8 +673,39 @@ impl Drop for Raii {
     fn drop(&mut self) {
         #[cfg(feature = "vram")]
         VRamEncoder::set_not_use(self.0, false);
+        #[cfg(feature = "vram")]
+        Encoder::update(scrap::codec::EncodingUpdate::Check);
         VIDEO_QOS.lock().unwrap().set_support_abr(self.0, true);
     }
+}
+
+fn setup_encoder(
+    c: &CapturerInfo,
+    display_idx: usize,
+    quality: Quality,
+    client_record: bool,
+    record_incoming: bool,
+    last_portable_service_running: bool,
+) -> ResultType<(
+    Encoder,
+    EncoderCfg,
+    CodecFormat,
+    bool,
+    Arc<Mutex<Option<Recorder>>>,
+)> {
+    let encoder_cfg = get_encoder_config(
+        &c,
+        display_idx,
+        quality,
+        client_record || record_incoming,
+        last_portable_service_running,
+    );
+    Encoder::set_fallback(&encoder_cfg);
+    let codec_format = Encoder::negotiated_codec();
+    let recorder = get_recorder(c.width, c.height, &codec_format, record_incoming);
+    let use_i444 = Encoder::use_i444(&encoder_cfg);
+    let encoder = Encoder::new(encoder_cfg.clone(), use_i444)?;
+    Ok((encoder, encoder_cfg, codec_format, use_i444, recorder))
 }
 
 fn get_encoder_config(
@@ -647,121 +725,58 @@ fn get_encoder_config(
     // https://www.wowza.com/community/t/the-correct-keyframe-interval-in-obs-studio/95162
     let keyframe_interval = if record { Some(240) } else { None };
     let negotiated_codec = Encoder::negotiated_codec();
-    match negotiated_codec.clone() {
-        CodecName::H264VRAM | CodecName::H265VRAM => {
+    match negotiated_codec {
+        CodecFormat::H264 | CodecFormat::H265 => {
             #[cfg(feature = "vram")]
-            if let Some(feature) = VRamEncoder::try_get(&c.device(), negotiated_codec.clone()) {
-                EncoderCfg::VRAM(VRamEncoderConfig {
+            if let Some(feature) = VRamEncoder::try_get(&c.device(), negotiated_codec) {
+                return EncoderCfg::VRAM(VRamEncoderConfig {
                     device: c.device(),
                     width: c.width,
                     height: c.height,
                     quality,
                     feature,
                     keyframe_interval,
-                })
-            } else {
-                handle_hw_encoder(
-                    negotiated_codec.clone(),
-                    c.width,
-                    c.height,
-                    quality as _,
-                    keyframe_interval,
-                )
+                });
             }
-            #[cfg(not(feature = "vram"))]
-            handle_hw_encoder(
-                negotiated_codec.clone(),
-                c.width,
-                c.height,
-                quality as _,
+            #[cfg(feature = "hwcodec")]
+            if let Some(hw) = HwRamEncoder::try_get(negotiated_codec) {
+                return EncoderCfg::HWRAM(HwRamEncoderConfig {
+                    name: hw.name,
+                    mc_name: hw.mc_name,
+                    width: c.width,
+                    height: c.height,
+                    quality,
+                    keyframe_interval,
+                });
+            }
+            EncoderCfg::VPX(VpxEncoderConfig {
+                width: c.width as _,
+                height: c.height as _,
+                quality,
+                codec: VpxVideoCodecId::VP9,
                 keyframe_interval,
-            )
+            })
         }
-        CodecName::H264RAM(_name) | CodecName::H265RAM(_name) => handle_hw_encoder(
-            negotiated_codec.clone(),
-            c.width,
-            c.height,
-            quality as _,
-            keyframe_interval,
-        ),
-        name @ (CodecName::VP8 | CodecName::VP9) => EncoderCfg::VPX(VpxEncoderConfig {
+        format @ (CodecFormat::VP8 | CodecFormat::VP9) => EncoderCfg::VPX(VpxEncoderConfig {
             width: c.width as _,
             height: c.height as _,
             quality,
-            codec: if name == CodecName::VP8 {
+            codec: if format == CodecFormat::VP8 {
                 VpxVideoCodecId::VP8
             } else {
                 VpxVideoCodecId::VP9
             },
             keyframe_interval,
         }),
-        CodecName::AV1 => EncoderCfg::AOM(AomEncoderConfig {
+        CodecFormat::AV1 => EncoderCfg::AOM(AomEncoderConfig {
             width: c.width as _,
             height: c.height as _,
             quality,
             keyframe_interval,
         }),
-    }
-}
-
-fn handle_hw_encoder(
-    _name: CodecName,
-    width: usize,
-    height: usize,
-    quality: Quality,
-    keyframe_interval: Option<usize>,
-) -> EncoderCfg {
-    let f = || {
-        #[cfg(feature = "hwcodec")]
-        match _name {
-            CodecName::H264VRAM | CodecName::H265VRAM => {
-                let is_h265 = _name == CodecName::H265VRAM;
-                let best = HwRamEncoder::best();
-                if let Some(h264) = best.h264 {
-                    if !is_h265 {
-                        return Ok(EncoderCfg::HWRAM(HwRamEncoderConfig {
-                            name: h264.name,
-                            width,
-                            height,
-                            quality,
-                            keyframe_interval,
-                        }));
-                    }
-                }
-                if let Some(h265) = best.h265 {
-                    if is_h265 {
-                        return Ok(EncoderCfg::HWRAM(HwRamEncoderConfig {
-                            name: h265.name,
-                            width,
-                            height,
-                            quality,
-                            keyframe_interval,
-                        }));
-                    }
-                }
-            }
-            CodecName::H264RAM(name) | CodecName::H265RAM(name) => {
-                return Ok(EncoderCfg::HWRAM(HwRamEncoderConfig {
-                    name,
-                    width,
-                    height,
-                    quality,
-                    keyframe_interval,
-                }));
-            }
-            _ => {
-                return Err(());
-            }
-        };
-
-        Err(())
-    };
-
-    match f() {
-        Ok(cfg) => cfg,
         _ => EncoderCfg::VPX(VpxEncoderConfig {
-            width: width as _,
-            height: height as _,
+            width: c.width as _,
+            height: c.height as _,
             quality,
             codec: VpxVideoCodecId::VP9,
             keyframe_interval,
@@ -772,9 +787,13 @@ fn handle_hw_encoder(
 fn get_recorder(
     width: usize,
     height: usize,
-    codec_name: &CodecName,
+    codec_format: &CodecFormat,
     record_incoming: bool,
 ) -> Arc<Mutex<Option<Recorder>>> {
+    #[cfg(windows)]
+    let root = crate::platform::is_root();
+    #[cfg(not(windows))]
+    let root = false;
     let recorder = if record_incoming {
         use crate::hbbs_http::record_upload;
 
@@ -788,11 +807,11 @@ fn get_recorder(
         Recorder::new(RecorderContext {
             server: true,
             id: Config::get_id(),
-            default_dir: crate::ui_interface::default_video_save_directory(),
+            dir: crate::ui_interface::video_save_directory(root),
             filename: "".to_owned(),
             width,
             height,
-            format: codec_name.into(),
+            format: codec_format.clone(),
             tx,
         })
         .map_or(Default::default(), |r| Arc::new(Mutex::new(Some(r))))
@@ -801,6 +820,26 @@ fn get_recorder(
     };
 
     recorder
+}
+
+#[cfg(target_os = "android")]
+fn check_change_scale(hardware: bool) -> ResultType<()> {
+    let screen_size = scrap::screen_size();
+    log::info!("hardware: {hardware}, screen_size: {screen_size:?}",);
+    scrap::android::call_main_service_set_by_name(
+        "is_hardware_codec",
+        Some(hardware.to_string().as_str()),
+        None,
+    )
+    .ok();
+    let old_scale = screen_size.2;
+    let new_scale = scrap::screen_size().2;
+    if old_scale != new_scale {
+        log::info!("switch due to scale changed, {old_scale} -> {new_scale}");
+        // switch is not a must, but it is better to do so.
+        bail!("SWITCH");
+    }
+    Ok(())
 }
 
 fn check_privacy_mode_changed(sp: &GenericService, privacy_mode_id: i32) -> ResultType<()> {
@@ -813,6 +852,7 @@ fn check_privacy_mode_changed(sp: &GenericService, privacy_mode_id: i32) -> Resu
             );
             sp.send_to_others(msg_out, privacy_mode_id_2);
         }
+        log::info!("switch due to privacy mode changed");
         bail!("SWITCH");
     }
     Ok(())
@@ -822,9 +862,7 @@ fn check_privacy_mode_changed(sp: &GenericService, privacy_mode_id: i32) -> Resu
 fn handle_one_frame(
     display: usize,
     sp: &GenericService,
-    frame: Frame,
-    yuv: &mut Vec<u8>,
-    mid_data: &mut Vec<u8>,
+    frame: EncodeInput,
     ms: i64,
     encoder: &mut Encoder,
     recorder: Arc<Mutex<Option<Recorder>>>,
@@ -832,12 +870,12 @@ fn handle_one_frame(
     sp.snapshot(|sps| {
         // so that new sub and old sub share the same encoder after switch
         if sps.has_subscribes() {
+            log::info!("switch due to new subscriber");
             bail!("SWITCH");
         }
         Ok(())
     })?;
 
-    let frame = frame.to(encoder.yuvfmt(), yuv, mid_data)?;
     let mut send_conn_ids: HashSet<i32> = Default::default();
     match encoder.encode_to_message(frame, ms) {
         Ok(mut vf) => {
@@ -853,20 +891,13 @@ fn handle_one_frame(
         }
         Err(e) => match e.to_string().as_str() {
             scrap::codec::ENCODE_NEED_SWITCH => {
+                log::info!("switch due to encoder need switch");
                 bail!("SWITCH");
             }
             _ => {}
         },
     }
     Ok(send_conn_ids)
-}
-
-pub fn is_inited_msg() -> Option<Message> {
-    #[cfg(target_os = "linux")]
-    if !is_x11() {
-        return super::wayland::is_inited();
-    }
-    None
 }
 
 #[inline]

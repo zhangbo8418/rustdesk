@@ -61,7 +61,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Remove from Favorites", "Remove from favorites"),
         ("Socks5 Proxy", "Socks5 proxy"),
         ("Socks5/Http(s) Proxy", "Socks5/Http(s) proxy"),
-        ("Default protocol and port are Socks5 and 1080", "Default protocol and port are Socks5 and 1080"),
         ("install_daemon_tip", "For starting on boot, you need to install system service."),
         ("Are you sure to close the connection?", "Are you sure you want to close the connection?"),
         ("One-Finger Tap", "One-finger tap"),
@@ -201,7 +200,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("display_is_plugged_out_msg", "The display is plugged out, switch to the first display."),
         ("elevated_switch_display_msg", "Switch to the primary display because multiple displays are not supported in elevated user mode."),
         ("selinux_tip", "SELinux is enabled on your device, which may prevent RustDesk from running properly as controlled side."),
-        ("id_input_tip", "You can input an ID, a direct IP, or a domain with a port (<domain>:<port>).\nIf you want to access a device on another server, please append the server address (<id>@<server_address>?key=<key_value>), for example,\n9123456234@192.168.16.1:21117?key=5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=.\nIf you want to access a device on a public server, please input \"<id>@public\", the key is not needed for public server"),
+        ("id_input_tip", "You can input an ID, a direct IP, or a domain with a port (<domain>:<port>).\nIf you want to access a device on another server, please append the server address (<id>@<server_address>?key=<key_value>), for example,\n9123456234@192.168.16.1:21117?key=5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=.\nIf you want to access a device on a public server, please input \"<id>@public\", the key is not needed for public server.\n\nIf you want to force the use of a relay connection on the first connection, add \"/r\" at the end of the ID, for example, \"9123456234/r\"."),
         ("privacy_mode_impl_mag_tip", "Mode 1"),
         ("privacy_mode_impl_virtual_display_tip", "Mode 2"),
         ("idd_not_support_under_win10_2004_tip", "Indirect display driver is not supported. Windows 10, version 2004 or newer is required."),
@@ -224,5 +223,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("no_need_privacy_mode_no_physical_displays_tip", "No physical displays, no need to use the privacy mode."),
         ("Follow remote cursor", ""),
         ("Follow remote window focus", ""),
+        ("default_proxy_tip", "Default protocol and port are Socks5 and 1080"),
+        ("no_audio_input_device_tip", "No audio input device found."),
+        ("clear_Wayland_screen_selection_tip", "After clearing the screen selection, you can reselect the screen to share."),
+        ("confirm_clear_Wayland_screen_selection_tip", "Are you sure to clear the Wayland screen selection?"),
+        ("android_new_voice_call_tip", "A new voice call request was received. If you accept, the audio will switch to voice communication."),
     ].iter().cloned().collect();
 }

@@ -278,15 +278,6 @@ pub fn session_set_flutter_option(session_id: SessionID, k: String, v: String) {
     }
 }
 
-// This function is only used for the default connection session.
-pub fn session_get_flutter_option_by_peer_id(id: String, k: String) -> Option<String> {
-    if let Some(session) = sessions::get_session_by_peer_id(id, ConnType::DEFAULT_CONN) {
-        Some(session.get_flutter_option(k))
-    } else {
-        None
-    }
-}
-
 pub fn get_next_texture_key() -> SyncReturn<i32> {
     let k = TEXTURE_RENDER_KEY.fetch_add(1, Ordering::SeqCst) + 1;
     SyncReturn(k)
@@ -774,9 +765,8 @@ pub fn main_get_error() -> String {
 }
 
 pub fn main_show_option(_key: String) -> SyncReturn<bool> {
-    #[cfg(all(target_os = "linux", feature = "linux_headless"))]
-    #[cfg(not(any(feature = "flatpak", feature = "appimage")))]
-    if _key.eq(config::CONFIG_OPTION_ALLOW_LINUX_HEADLESS) {
+    #[cfg(target_os = "linux")]
+    if _key.eq(config::keys::OPTION_ALLOW_LINUX_HEADLESS) {
         return SyncReturn(true);
     }
     SyncReturn(false)
@@ -908,6 +898,38 @@ pub fn main_get_env(key: String) -> SyncReturn<String> {
 
 pub fn main_set_local_option(key: String, value: String) {
     set_local_option(key, value)
+}
+
+// We do use use `main_get_local_option` and `main_set_local_option`.
+//
+// 1. For get, the value is stored in the server process.
+// 2. For clear, we need to need to return the error mmsg from the server process to flutter.
+pub fn main_handle_wayland_screencast_restore_token(_key: String, _value: String) -> String {
+    #[cfg(not(target_os = "linux"))]
+    {
+        return "".to_owned();
+    }
+    #[cfg(target_os = "linux")]
+    if _value == "get" {
+        match crate::ipc::get_wayland_screencast_restore_token(_key) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("Failed to get wayland screencast restore token, {}", e);
+                "".to_owned()
+            }
+        }
+    } else if _value == "clear" {
+        match crate::ipc::clear_wayland_screencast_restore_token(_key.clone()) {
+            Ok(true) => {
+                set_local_option(_key, "".to_owned());
+                "".to_owned()
+            }
+            Ok(false) => "Failed to clear, please try again.".to_owned(),
+            Err(e) => format!("Failed to clear, {}", e),
+        }
+    } else {
+        "".to_owned()
+    }
 }
 
 pub fn main_get_input_source() -> SyncReturn<String> {
@@ -1146,8 +1168,8 @@ pub fn main_change_language(lang: String) {
     send_to_cm(&crate::ipc::Data::Language(lang));
 }
 
-pub fn main_default_video_save_directory() -> String {
-    default_video_save_directory()
+pub fn main_video_save_directory(root: bool) -> String {
+    video_save_directory(root)
 }
 
 pub fn main_set_user_default_option(key: String, value: String) {
@@ -1160,6 +1182,23 @@ pub fn main_get_user_default_option(key: String) -> SyncReturn<String> {
 
 pub fn main_handle_relay_id(id: String) -> String {
     handle_relay_id(&id).to_owned()
+}
+
+pub fn main_is_option_fixed(key: String) -> SyncReturn<bool> {
+    SyncReturn(
+        config::OVERWRITE_DISPLAY_SETTINGS
+            .read()
+            .unwrap()
+            .contains_key(&key)
+            || config::OVERWRITE_LOCAL_SETTINGS
+                .read()
+                .unwrap()
+                .contains_key(&key)
+            || config::OVERWRITE_SETTINGS
+                .read()
+                .unwrap()
+                .contains_key(&key),
+    )
 }
 
 pub fn main_get_main_display() -> SyncReturn<String> {

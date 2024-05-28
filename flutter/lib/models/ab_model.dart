@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
+import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/model.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
@@ -84,7 +85,7 @@ class AbModel {
   reset() async {
     print("reset ab model");
     addressbooks.clear();
-    setCurrentName('');
+    _currentName.value = '';
     await bind.mainClearAb();
     listInitialized = false;
   }
@@ -509,7 +510,8 @@ class AbModel {
   }
 
   void setShouldAsync(bool v) async {
-    await bind.mainSetLocalOption(key: syncAbOption, value: v ? 'Y' : '');
+    await bind.mainSetLocalOption(
+        key: syncAbOption, value: v ? 'Y' : defaultOptionNo);
     _syncAllFromRecent = true;
     _timerCounter = 0;
   }
@@ -548,7 +550,7 @@ class AbModel {
   }
 
   trySetCurrentToLast() {
-    final name = bind.getLocalFlutterOption(k: 'current-ab-name');
+    final name = bind.getLocalFlutterOption(k: kOptionCurrentAbName);
     if (addressbooks.containsKey(name)) {
       _currentName.value = name;
     }
@@ -645,6 +647,10 @@ class AbModel {
 
   List<String> addressBookNames() {
     return addressbooks.keys.toList();
+  }
+
+  String personalAddressBookName() {
+    return _personalAddressBookName;
   }
 
   Future<void> setCurrentName(String name) async {

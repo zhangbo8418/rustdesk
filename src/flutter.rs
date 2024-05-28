@@ -330,11 +330,26 @@ impl VideoRenderer {
     fn register_pixelbuffer_texture(&self, display: usize, ptr: usize) {
         let mut sessions_lock = self.map_display_sessions.write().unwrap();
         if ptr == 0 {
+            if let Some(info) = sessions_lock.get_mut(&display) {
+                if info.texture_rgba_ptr != usize::default() {
+                    info.texture_rgba_ptr = usize::default();
+                }
+                #[cfg(feature = "vram")]
+                if info.gpu_output_ptr != usize::default() {
+                    return;
+                }
+            }
             sessions_lock.remove(&display);
         } else {
             if let Some(info) = sessions_lock.get_mut(&display) {
-                if info.texture_rgba_ptr != 0 && info.texture_rgba_ptr != ptr as TextureRgbaPtr {
-                    log::error!("unreachable, texture_rgba_ptr is not null and not equal to ptr");
+                if info.texture_rgba_ptr != usize::default()
+                    && info.texture_rgba_ptr != ptr as TextureRgbaPtr
+                {
+                    log::warn!(
+                        "texture_rgba_ptr is not null and not equal to ptr, replace {} to {}",
+                        info.texture_rgba_ptr,
+                        ptr
+                    );
                 }
                 info.texture_rgba_ptr = ptr as _;
                 info.notify_render_type = None;
@@ -359,21 +374,34 @@ impl VideoRenderer {
     pub fn register_gpu_output(&self, display: usize, ptr: usize) {
         let mut sessions_lock = self.map_display_sessions.write().unwrap();
         if ptr == 0 {
+            if let Some(info) = sessions_lock.get_mut(&display) {
+                if info.gpu_output_ptr != usize::default() {
+                    info.gpu_output_ptr = usize::default();
+                }
+                #[cfg(feature = "flutter_texture_render")]
+                if info.texture_rgba_ptr != usize::default() {
+                    return;
+                }
+            }
             sessions_lock.remove(&display);
         } else {
             if let Some(info) = sessions_lock.get_mut(&display) {
-                if info.gpu_output_ptr != 0 && info.gpu_output_ptr != ptr {
-                    log::error!("unreachable, gpu_output_ptr is not null and not equal to ptr");
+                if info.gpu_output_ptr != usize::default() && info.gpu_output_ptr != ptr {
+                    log::error!(
+                        "gpu_output_ptr is not null and not equal to ptr, relace {} to {}",
+                        info.gpu_output_ptr,
+                        ptr
+                    );
                 }
                 info.gpu_output_ptr = ptr as _;
                 info.notify_render_type = None;
             } else {
-                if ptr != 0 {
+                if ptr != usize::default() {
                     sessions_lock.insert(
                         display,
                         DisplaySessionInfo {
                             #[cfg(feature = "flutter_texture_render")]
-                            texture_rgba_ptr: 0,
+                            texture_rgba_ptr: usize::default(),
                             #[cfg(feature = "flutter_texture_render")]
                             size: (0, 0),
                             gpu_output_ptr: ptr,
@@ -1211,11 +1239,11 @@ pub mod connection_manager {
         fn add_connection(&self, client: &crate::ui_cm_interface::Client) {
             let client_json = serde_json::to_string(&client).unwrap_or("".into());
             // send to Android service, active notification no matter UI is shown or not.
-            #[cfg(any(target_os = "android"))]
+            #[cfg(target_os = "android")]
             if let Err(e) =
                 call_main_service_set_by_name("add_connection", Some(&client_json), None)
             {
-                log::debug!("call_service_set_by_name fail,{}", e);
+                log::debug!("call_main_service_set_by_name fail,{}", e);
             }
             // send to UI, refresh widget
             self.push_event("add_connection", &[("client", &client_json)]);
@@ -1249,6 +1277,13 @@ pub mod connection_manager {
 
         fn update_voice_call_state(&self, client: &crate::ui_cm_interface::Client) {
             let client_json = serde_json::to_string(&client).unwrap_or("".into());
+            // send to Android service, active notification no matter UI is shown or not.
+            #[cfg(target_os = "android")]
+            if let Err(e) =
+                call_main_service_set_by_name("update_voice_call_state", Some(&client_json), None)
+            {
+                log::debug!("call_main_service_set_by_name fail,{}", e);
+            }
             self.push_event("update_voice_call_state", &[("client", &client_json)]);
         }
 

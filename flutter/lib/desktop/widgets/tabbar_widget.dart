@@ -16,6 +16,7 @@ import 'package:get/get.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
 import 'package:scroll_pos/scroll_pos.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 import '../../utils/multi_window_manager.dart';
 
@@ -256,6 +257,8 @@ class DesktopTab extends StatelessWidget {
   late final DesktopTabType tabType;
   late final bool isMainWindow;
 
+  final RxList<String> invisibleTabKeys = RxList.empty();
+
   DesktopTab({
     Key? key,
     required this.controller,
@@ -320,18 +323,18 @@ class DesktopTab extends StatelessWidget {
     return buildRemoteBlock(
         child: child,
         use: () async {
-          var access_mode = await bind.mainGetOption(key: 'access-mode');
+          var access_mode = await bind.mainGetOption(key: kOptionAccessMode);
           var option = option2bool(
-              'allow-remote-config-modification',
+              kOptionAllowRemoteConfigModification,
               await bind.mainGetOption(
-                  key: 'allow-remote-config-modification'));
+                  key: kOptionAllowRemoteConfigModification));
           return access_mode == 'view' || (access_mode.isEmpty && !option);
         });
   }
 
   List<Widget> _tabWidgets = [];
   Widget _buildPageView() {
-    return _buildBlock(
+    final child = _buildBlock(
         child: Obx(() => PageView(
             controller: state.value.pageController,
             physics: NeverScrollableScrollPhysics(),
@@ -355,6 +358,11 @@ class DesktopTab extends StatelessWidget {
                 return newList;
               }
             }())));
+    if (tabType == DesktopTabType.remoteScreen) {
+      return Container(color: kColorCanvas, child: child);
+    } else {
+      return child;
+    }
   }
 
   /// Check whether to show ListView
@@ -430,6 +438,7 @@ class DesktopTab extends StatelessWidget {
                             },
                             child: _ListView(
                               controller: controller,
+                              invisibleTabKeys: invisibleTabKeys,
                               tabBuilder: tabBuilder,
                               tabMenuBuilder: tabMenuBuilder,
                               labelGetter: labelGetter,
@@ -448,12 +457,14 @@ class DesktopTab extends StatelessWidget {
           tabType: tabType,
           state: state,
           tabController: controller,
+          invisibleTabKeys: invisibleTabKeys,
           tail: tail,
           showMinimize: showMinimize,
           showMaximize: showMaximize,
           showClose: showClose,
           onClose: onWindowCloseButton,
-        )
+          labelGetter: labelGetter,
+        ).paddingOnly(left: 10)
       ],
     );
   }
@@ -471,17 +482,22 @@ class WindowActionPanel extends StatefulWidget {
   final Widget? tail;
   final Future<bool> Function()? onClose;
 
+  final RxList<String> invisibleTabKeys;
+  final LabelGetter? labelGetter;
+
   const WindowActionPanel(
       {Key? key,
       required this.isMainWindow,
       required this.tabType,
       required this.state,
       required this.tabController,
+      required this.invisibleTabKeys,
       this.tail,
       this.showMinimize = true,
       this.showMaximize = true,
       this.showClose = true,
-      this.onClose})
+      this.onClose,
+      this.labelGetter})
       : super(key: key);
 
   @override
@@ -535,6 +551,16 @@ class WindowActionPanelState extends State<WindowActionPanel>
     stateGlobal.setMaximized(maximize);
     _saveFrameDebounce.call(_saveFrame);
     setState(() {});
+  }
+
+  @override
+  void onWindowFocus() {
+    stateGlobal.isFocused.value = true;
+  }
+
+  @override
+  void onWindowBlur() {
+    stateGlobal.isFocused.value = false;
   }
 
   @override
@@ -620,14 +646,12 @@ class WindowActionPanelState extends State<WindowActionPanel>
       }
       // macOS specific workaround, the window is not hiding when in fullscreen.
       if (isMacOS && await windowManager.isFullScreen()) {
-        stateGlobal.closeOnFullscreen ??= true;
         await windowManager.setFullScreen(false);
         await macOSWindowClose(
           () async => await windowManager.isFullScreen(),
           mainWindowClose,
         );
       } else {
-        stateGlobal.closeOnFullscreen ??= false;
         await mainWindowClose();
       }
     } else {
@@ -639,7 +663,6 @@ class WindowActionPanelState extends State<WindowActionPanel>
 
         if (await widget.onClose?.call() ?? true) {
           if (await controller.isFullScreen()) {
-            stateGlobal.closeOnFullscreen ??= true;
             await controller.setFullscreen(false);
             stateGlobal.setFullscreen(false, procWnd: false);
             await macOSWindowClose(
@@ -647,7 +670,6 @@ class WindowActionPanelState extends State<WindowActionPanel>
               () async => await notMainWindowClose(controller),
             );
           } else {
-            stateGlobal.closeOnFullscreen ??= false;
             await notMainWindowClose(controller);
           }
         }
@@ -658,11 +680,34 @@ class WindowActionPanelState extends State<WindowActionPanel>
     super.onWindowClose();
   }
 
+  bool showTabDowndown() {
+    return widget.tabController.state.value.tabs.length > 1 &&
+        (widget.tabController.tabType == DesktopTabType.remoteScreen ||
+            widget.tabController.tabType == DesktopTabType.fileTransfer ||
+            widget.tabController.tabType == DesktopTabType.portForward ||
+            widget.tabController.tabType == DesktopTabType.cm);
+  }
+
+  List<String> existingInvisibleTab() {
+    return widget.invisibleTabKeys
+        .where((key) =>
+            widget.tabController.state.value.tabs.any((tab) => tab.key == key))
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        Obx(() => Offstage(
+              offstage:
+                  !(showTabDowndown() && existingInvisibleTab().isNotEmpty),
+              child: _TabDropDownButton(
+                  controller: widget.tabController,
+                  labelGetter: widget.labelGetter,
+                  tabkeys: existingInvisibleTab()),
+            )),
         Offstage(offstage: widget.tail == null, child: widget.tail),
         Offstage(
           offstage: kUseCompatibleUiMode,
@@ -768,9 +813,9 @@ Future<bool> closeConfirmDialog() async {
   var confirm = true;
   final res = await gFFI.dialogManager.show<bool>((setState, close, context) {
     submit() {
-      final opt = "enable-confirm-closing-tabs";
-      String value = bool2option(opt, confirm);
-      bind.mainSetLocalOption(key: opt, value: value);
+      String value = bool2option(kOptionEnableConfirmClosingTabs, confirm);
+      bind.mainSetLocalOption(
+          key: kOptionEnableConfirmClosingTabs, value: value);
       close(true);
     }
 
@@ -814,6 +859,7 @@ Future<bool> closeConfirmDialog() async {
 
 class _ListView extends StatelessWidget {
   final DesktopTabController controller;
+  final RxList<String> invisibleTabKeys;
 
   final TabBuilder? tabBuilder;
   final TabMenuBuilder? tabMenuBuilder;
@@ -825,8 +871,9 @@ class _ListView extends StatelessWidget {
 
   Rx<DesktopTabState> get state => controller.state;
 
-  const _ListView({
+  _ListView({
     required this.controller,
+    required this.invisibleTabKeys,
     this.tabBuilder,
     this.tabMenuBuilder,
     this.labelGetter,
@@ -846,6 +893,19 @@ class _ListView extends StatelessWidget {
         controller.tabType == DesktopTabType.install;
   }
 
+  onVisibilityChanged(VisibilityInfo info) {
+    final key = (info.key as ValueKey).value;
+    if (info.visibleFraction < 0.75) {
+      if (!invisibleTabKeys.contains(key)) {
+        invisibleTabKeys.add(key);
+      }
+      invisibleTabKeys.removeWhere((key) =>
+          controller.state.value.tabs.where((e) => e.key == key).isEmpty);
+    } else {
+      invisibleTabKeys.remove(key);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Obx(() => ListView(
@@ -858,36 +918,41 @@ class _ListView extends StatelessWidget {
             : state.value.tabs.asMap().entries.map((e) {
                 final index = e.key;
                 final tab = e.value;
-                return _Tab(
+                final label = labelGetter == null
+                    ? Rx<String>(tab.label)
+                    : labelGetter!(tab.label);
+                return VisibilityDetector(
                   key: ValueKey(tab.key),
-                  index: index,
-                  tabInfoKey: tab.key,
-                  label: labelGetter == null
-                      ? Rx<String>(tab.label)
-                      : labelGetter!(tab.label),
-                  tabType: controller.tabType,
-                  selectedIcon: tab.selectedIcon,
-                  unselectedIcon: tab.unselectedIcon,
-                  closable: tab.closable,
-                  selected: state.value.selected,
-                  onClose: () {
-                    if (tab.onTabCloseButton != null) {
-                      tab.onTabCloseButton!();
-                    } else {
-                      controller.remove(index);
-                    }
-                  },
-                  onTap: () {
-                    controller.jumpTo(index);
-                    tab.onTap?.call();
-                  },
-                  tabBuilder: tabBuilder,
-                  tabMenuBuilder: tabMenuBuilder,
-                  maxLabelWidth: maxLabelWidth,
-                  selectedTabBackgroundColor: selectedTabBackgroundColor ??
-                      MyTheme.tabbar(context).selectedTabBackgroundColor,
-                  unSelectedTabBackgroundColor: unSelectedTabBackgroundColor,
-                  selectedBorderColor: selectedBorderColor,
+                  onVisibilityChanged: onVisibilityChanged,
+                  child: _Tab(
+                    key: ValueKey(tab.key),
+                    index: index,
+                    tabInfoKey: tab.key,
+                    label: label,
+                    tabType: controller.tabType,
+                    selectedIcon: tab.selectedIcon,
+                    unselectedIcon: tab.unselectedIcon,
+                    closable: tab.closable,
+                    selected: state.value.selected,
+                    onClose: () {
+                      if (tab.onTabCloseButton != null) {
+                        tab.onTabCloseButton!();
+                      } else {
+                        controller.remove(index);
+                      }
+                    },
+                    onTap: () {
+                      controller.jumpTo(index);
+                      tab.onTap?.call();
+                    },
+                    tabBuilder: tabBuilder,
+                    tabMenuBuilder: tabMenuBuilder,
+                    maxLabelWidth: maxLabelWidth,
+                    selectedTabBackgroundColor: selectedTabBackgroundColor ??
+                        MyTheme.tabbar(context).selectedTabBackgroundColor,
+                    unSelectedTabBackgroundColor: unSelectedTabBackgroundColor,
+                    selectedBorderColor: selectedBorderColor,
+                  ),
                 );
               }).toList()));
   }
@@ -1115,6 +1180,7 @@ class ActionIcon extends StatefulWidget {
   final String? message;
   final IconData icon;
   final GestureTapCallback? onTap;
+  final GestureTapDownCallback? onTapDown;
   final bool isClose;
   final double iconSize;
   final double boxSize;
@@ -1124,6 +1190,7 @@ class ActionIcon extends StatefulWidget {
       this.message,
       required this.icon,
       this.onTap,
+      this.onTapDown,
       this.isClose = false,
       this.iconSize = _kActionIconSize,
       this.boxSize = _kTabBarHeight - 1})
@@ -1153,6 +1220,7 @@ class _ActionIconState extends State<ActionIcon> {
             : MyTheme.tabbar(context).hoverColor,
         onHover: (value) => hover.value = value,
         onTap: widget.onTap,
+        onTapDown: widget.onTapDown,
         child: SizedBox(
           height: widget.boxSize,
           width: widget.boxSize,
@@ -1190,6 +1258,103 @@ class AddButton extends StatelessWidget {
         onTap: () => rustDeskWinManager.call(
             WindowType.Main, kWindowMainWindowOnTop, ""),
         isClose: false);
+  }
+}
+
+class _TabDropDownButton extends StatefulWidget {
+  final DesktopTabController controller;
+  final List<String> tabkeys;
+  final LabelGetter? labelGetter;
+
+  const _TabDropDownButton(
+      {required this.controller, required this.tabkeys, this.labelGetter});
+
+  @override
+  State<_TabDropDownButton> createState() => _TabDropDownButtonState();
+}
+
+class _TabDropDownButtonState extends State<_TabDropDownButton> {
+  var position = RelativeRect.fromLTRB(0, 0, 0, 0);
+
+  @override
+  Widget build(BuildContext context) {
+    List<String> sortedKeys = widget.controller.state.value.tabs
+        .where((e) => widget.tabkeys.contains(e.key))
+        .map((e) => e.key)
+        .toList();
+    return ActionIcon(
+      onTapDown: (details) {
+        final x = details.globalPosition.dx;
+        final y = details.globalPosition.dy;
+        position = RelativeRect.fromLTRB(x, y, x, y);
+      },
+      icon: Icons.arrow_drop_down,
+      onTap: () {
+        showMenu(
+          context: context,
+          position: position,
+          items: sortedKeys.map((e) {
+            var label = e;
+            final tabInfo = widget.controller.state.value.tabs
+                .firstWhereOrNull((element) => element.key == e);
+            if (tabInfo != null) {
+              label = tabInfo.label;
+            }
+            if (widget.labelGetter != null) {
+              label = widget.labelGetter!(e).value;
+            }
+            var index = widget.controller.state.value.tabs
+                .indexWhere((t) => t.key == e);
+            label = '${index + 1}. $label';
+            final menuHover = false.obs;
+            final btnHover = false.obs;
+            return PopupMenuItem<String>(
+              value: e,
+              height: 32,
+              onTap: () {
+                widget.controller.jumpToByKey(e);
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                }
+              },
+              child: MouseRegion(
+                onHover: (event) => setState(() => menuHover.value = true),
+                onExit: (event) => setState(() => menuHover.value = false),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(child: Text(label)),
+                    ),
+                    Obx(
+                      () => Offstage(
+                        offstage: !(tabInfo?.onTabCloseButton != null &&
+                            menuHover.value),
+                        child: InkWell(
+                            onTap: () {
+                              tabInfo?.onTabCloseButton?.call();
+                              if (Navigator.of(context).canPop()) {
+                                Navigator.of(context).pop();
+                              }
+                            },
+                            child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                onHover: (event) =>
+                                    setState(() => btnHover.value = true),
+                                onExit: (event) =>
+                                    setState(() => btnHover.value = false),
+                                child: Icon(Icons.close,
+                                    color:
+                                        btnHover.value ? Colors.red : null))),
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
   }
 }
 

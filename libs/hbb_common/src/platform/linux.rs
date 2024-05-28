@@ -74,7 +74,7 @@ pub fn get_display_server() -> String {
         }
     }
     if session.is_empty() {
-        "".to_owned()
+        std::env::var("XDG_SESSION_TYPE").unwrap_or("x11".to_owned())
     } else {
         get_display_server_of_session(&session)
     }
@@ -142,9 +142,17 @@ pub fn get_values_of_seat0_with_gdm_wayland(indices: &[usize]) -> Vec<String> {
     _get_values_of_seat0(indices, false)
 }
 
+// Ignore "3 sessions listed."
+fn ignore_loginctl_line(line: &str) -> bool {
+    line.contains("sessions") || line.split(" ").count() < 4
+}
+
 fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<String> {
     if let Ok(output) = run_loginctl(None) {
         for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if ignore_loginctl_line(line) {
+                continue;
+            }
             if line.contains("seat0") {
                 if let Some(sid) = line.split_whitespace().next() {
                     if is_active(sid) {
@@ -163,6 +171,9 @@ fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<Stri
 
         // some case, there is no seat0 https://github.com/rustdesk/rustdesk/issues/73
         for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if ignore_loginctl_line(line) {
+                continue;
+            }
             if let Some(sid) = line.split_whitespace().next() {
                 if is_active(sid) {
                     let d = get_display_server_of_session(sid);
@@ -223,24 +234,24 @@ pub fn run_cmds_trim_newline(cmds: &str) -> ResultType<String> {
     })
 }
 
-#[cfg(not(feature = "flatpak"))]
 fn run_loginctl(args: Option<Vec<&str>>) -> std::io::Result<std::process::Output> {
+    if std::env::var("FLATPAK_ID").is_ok() {
+        let mut l_args = String::from("loginctl");
+        if let Some(a) = args.as_ref() {
+            l_args = format!("{} {}", l_args, a.join(" "));
+        }
+        let res = std::process::Command::new("flatpak-spawn")
+            .args(vec![String::from("--host"), l_args])
+            .output();
+        if res.is_ok() {
+            return res;
+        }
+    }
     let mut cmd = std::process::Command::new("loginctl");
     if let Some(a) = args {
         return cmd.args(a).output();
     }
     cmd.output()
-}
-
-#[cfg(feature = "flatpak")]
-fn run_loginctl(args: Option<Vec<&str>>) -> std::io::Result<std::process::Output> {
-    let mut l_args = String::from("loginctl");
-    if let Some(a) = args {
-        l_args = format!("{} {}", l_args, a.join(" "));
-    }
-    std::process::Command::new("flatpak-spawn")
-        .args(vec![String::from("--host"), l_args])
-        .output()
 }
 
 /// forever: may not work
@@ -290,6 +301,9 @@ mod tests {
     fn test_run_cmds_trim_newline() {
         assert_eq!(run_cmds_trim_newline("echo -n 123").unwrap(), "123");
         assert_eq!(run_cmds_trim_newline("echo 123").unwrap(), "123");
-        assert_eq!(run_cmds_trim_newline("whoami").unwrap() + "\n", run_cmds("whoami").unwrap());
+        assert_eq!(
+            run_cmds_trim_newline("whoami").unwrap() + "\n",
+            run_cmds("whoami").unwrap()
+        );
     }
 }

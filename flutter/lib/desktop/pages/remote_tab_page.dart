@@ -131,103 +131,103 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tabWidget = Obx(
-      () => Container(
-        decoration: BoxDecoration(
-          border: Border.all(
-              color: MyTheme.color(context).border!,
-              width: stateGlobal.windowBorderWidth.value),
-        ),
-        child: Scaffold(
-          backgroundColor: Theme.of(context).colorScheme.background,
-          body: DesktopTab(
-            controller: tabController,
-            onWindowCloseButton: handleWindowCloseButton,
-            tail: const AddButton().paddingOnly(left: 10),
-            pageViewBuilder: (pageView) => pageView,
-            labelGetter: DesktopTab.tablabelGetter,
-            tabBuilder: (key, icon, label, themeConf) => Obx(() {
-              final connectionType = ConnectionTypeState.find(key);
-              if (!connectionType.isValid()) {
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    icon,
-                    label,
-                  ],
-                );
-              } else {
-                bool secure =
-                    connectionType.secure.value == ConnectionType.strSecure;
-                bool direct =
-                    connectionType.direct.value == ConnectionType.strDirect;
-                String msgConn;
-                if (secure && direct) {
-                  msgConn = translate("Direct and encrypted connection");
-                } else if (secure && !direct) {
-                  msgConn = translate("Relayed and encrypted connection");
-                } else if (!secure && direct) {
-                  msgConn = translate("Direct and unencrypted connection");
-                } else {
-                  msgConn = translate("Relayed and unencrypted connection");
-                }
-                var msgFingerprint = '${translate('Fingerprint')}:\n';
-                var fingerprint = FingerprintState.find(key).value;
-                if (fingerprint.isEmpty) {
-                  fingerprint = 'N/A';
-                }
-                if (fingerprint.length > 5 * 8) {
-                  var first = fingerprint.substring(0, 39);
-                  var second = fingerprint.substring(40);
-                  msgFingerprint += '$first\n$second';
-                } else {
-                  msgFingerprint += fingerprint;
-                }
+    final child = Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
+      body: DesktopTab(
+        controller: tabController,
+        onWindowCloseButton: handleWindowCloseButton,
+        tail: const AddButton(),
+        pageViewBuilder: (pageView) => pageView,
+        labelGetter: DesktopTab.tablabelGetter,
+        tabBuilder: (key, icon, label, themeConf) => Obx(() {
+          final connectionType = ConnectionTypeState.find(key);
+          if (!connectionType.isValid()) {
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                icon,
+                label,
+              ],
+            );
+          } else {
+            bool secure =
+                connectionType.secure.value == ConnectionType.strSecure;
+            bool direct =
+                connectionType.direct.value == ConnectionType.strDirect;
+            String msgConn;
+            if (secure && direct) {
+              msgConn = translate("Direct and encrypted connection");
+            } else if (secure && !direct) {
+              msgConn = translate("Relayed and encrypted connection");
+            } else if (!secure && direct) {
+              msgConn = translate("Direct and unencrypted connection");
+            } else {
+              msgConn = translate("Relayed and unencrypted connection");
+            }
+            var msgFingerprint = '${translate('Fingerprint')}:\n';
+            var fingerprint = FingerprintState.find(key).value;
+            if (fingerprint.isEmpty) {
+              fingerprint = 'N/A';
+            }
+            if (fingerprint.length > 5 * 8) {
+              var first = fingerprint.substring(0, 39);
+              var second = fingerprint.substring(40);
+              msgFingerprint += '$first\n$second';
+            } else {
+              msgFingerprint += fingerprint;
+            }
 
-                final tab = Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    icon,
-                    Tooltip(
-                      message: '$msgConn\n$msgFingerprint',
-                      child: SvgPicture.asset(
-                        'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
-                        width: themeConf.iconSize,
-                        height: themeConf.iconSize,
-                      ).paddingOnly(right: 5),
-                    ),
-                    label,
-                    unreadMessageCountBuilder(UnreadChatCountState.find(key))
-                        .marginOnly(left: 4),
-                  ],
-                );
+            final tab = Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                icon,
+                Tooltip(
+                  message: '$msgConn\n$msgFingerprint',
+                  child: SvgPicture.asset(
+                    'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
+                    width: themeConf.iconSize,
+                    height: themeConf.iconSize,
+                  ).paddingOnly(right: 5),
+                ),
+                label,
+                unreadMessageCountBuilder(UnreadChatCountState.find(key))
+                    .marginOnly(left: 4),
+              ],
+            );
 
-                return Listener(
-                  onPointerDown: (e) {
-                    if (e.kind != ui.PointerDeviceKind.mouse) {
-                      return;
-                    }
-                    final remotePage = tabController.state.value.tabs
-                        .firstWhere((tab) => tab.key == key)
-                        .page as RemotePage;
-                    if (remotePage.ffi.ffiModel.pi.isSet.isTrue &&
-                        e.buttons == 2) {
-                      showRightMenu(
-                        (CancelFunc cancelFunc) {
-                          return _tabMenuBuilder(key, cancelFunc);
-                        },
-                        target: e.position,
-                      );
-                    }
-                  },
-                  child: tab,
-                );
-              }
-            }),
-          ),
-        ),
+            return Listener(
+              onPointerDown: (e) {
+                if (e.kind != ui.PointerDeviceKind.mouse) {
+                  return;
+                }
+                final remotePage = tabController.state.value.tabs
+                    .firstWhere((tab) => tab.key == key)
+                    .page as RemotePage;
+                if (remotePage.ffi.ffiModel.pi.isSet.isTrue && e.buttons == 2) {
+                  showRightMenu(
+                    (CancelFunc cancelFunc) {
+                      return _tabMenuBuilder(key, cancelFunc);
+                    },
+                    target: e.position,
+                  );
+                }
+              },
+              child: tab,
+            );
+          }
+        }),
       ),
     );
+    final tabWidget = isLinux
+        ? buildVirtualWindowFrame(context, child)
+        : Obx(() => Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                    color: MyTheme.color(context).border!,
+                    width: stateGlobal.windowBorderWidth.value),
+              ),
+              child: child,
+            ));
     return isMacOS || kUseCompatibleUiMode
         ? tabWidget
         : Obx(() => SubWindowDragToResizeArea(
@@ -350,7 +350,6 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
 
   void onRemoveId(String id) async {
     if (tabController.state.value.tabs.isEmpty) {
-      stateGlobal.setFullscreen(false, procWnd: false);
       // Keep calling until the window status is hidden.
       //
       // Workaround for Windows:
@@ -384,9 +383,9 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
       tabController.clear();
       return true;
     } else {
-      final opt = "enable-confirm-closing-tabs";
       final bool res;
-      if (!option2bool(opt, bind.mainGetLocalOption(key: opt))) {
+      if (!option2bool(kOptionEnableConfirmClosingTabs,
+          bind.mainGetLocalOption(key: kOptionEnableConfirmClosingTabs))) {
         res = true;
       } else {
         res = await closeConfirmDialog();
@@ -416,19 +415,19 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
       final display = args['display'];
       final displays = args['displays'];
       final screenRect = parseParamScreenRect(args);
-      windowOnTop(windowId());
-      tryMoveToScreenAndSetFullscreen(screenRect);
-      if (tabController.length == 0) {
-        // Show the hidden window.
-        if (isMacOS && stateGlobal.closeOnFullscreen == true) {
-          stateGlobal.setFullscreen(true);
+      Future.delayed(Duration.zero, () async {
+        if (stateGlobal.fullscreen.isTrue) {
+          await WindowController.fromWindowId(windowId()).setFullscreen(false);
+          stateGlobal.setFullscreen(false, procWnd: false);
         }
-        // Reset the state
-        stateGlobal.closeOnFullscreen = null;
-      }
+        await setNewConnectWindowFrame(windowId(), id!, screenRect);
+        Future.delayed(Duration(milliseconds: isWindows ? 100 : 0), () async {
+          await windowOnTop(windowId());
+        });
+      });
       ConnectionTypeState.init(id);
       _toolbarState.setShow(
-          bind.mainGetUserDefaultOption(key: 'collapse_toolbar') != 'Y');
+          bind.mainGetUserDefaultOption(key: kOptionCollapseToolbar) != 'Y');
       tabController.add(TabInfo(
         key: id,
         label: id,
@@ -522,6 +521,8 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           returnValue = jsonEncode(coords.toJson());
         }
       }
+    } else if (call.method == kWindowEventSetFullscreen) {
+      stateGlobal.setFullscreen(call.arguments == 'true');
     }
     _update_remote_count();
     return returnValue;
