@@ -1432,7 +1432,6 @@ bool option2bool(String option, String value) {
   } else if (option.startsWith("allow-") ||
       option == kOptionStopService ||
       option == kOptionDirectServer ||
-      option == "stop-rendezvous-service" ||
       option == kOptionForceAlwaysRelay) {
     res = value == "Y";
   } else {
@@ -1449,7 +1448,6 @@ String bool2option(String option, bool b) {
   } else if (option.startsWith('allow-') ||
       option == kOptionStopService ||
       option == kOptionDirectServer ||
-      option == "stop-rendezvous-service" ||
       option == kOptionForceAlwaysRelay) {
     res = b ? 'Y' : defaultOptionNo;
   } else {
