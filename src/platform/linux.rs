@@ -1395,10 +1395,8 @@ pub fn install_service() -> bool {
         "{cp} systemctl enable {app_name}; systemctl stop {app_name}; systemctl start {app_name};"
     )) {
         Config::set_option("stop-service".into(), "Y".into());
-        return true;
     }
-    run_me_with(2);
-    std::process::exit(0);
+    true
 }
 
 fn check_if_stop_service() {
