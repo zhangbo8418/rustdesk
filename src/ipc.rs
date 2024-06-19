@@ -379,6 +379,10 @@ async fn handle(data: Data, stream: &mut Connection) {
                             .spawn()
                             .ok();
                     }
+                    // leave above open a little time
+                    hbb_common::sleep(0.3).await;
+                    // in case below exit failed
+                    crate::platform::quit_gui();
                 }
                 std::process::exit(-1); // to make sure --server luauchagent process can restart because SuccessfulExit used
             }
