@@ -479,7 +479,11 @@ class _RemotePageState extends State<RemotePage> {
                   : TextFormField(
                       textInputAction: TextInputAction.newline,
                       autocorrect: false,
-                      enableSuggestions: false,
+                      // Flutter 3.16.9 Android.
+                      // `enableSuggestions` causes secure keyboard to be shown.
+                      // https://github.com/flutter/flutter/issues/139143
+                      // https://github.com/flutter/flutter/issues/146540
+                      // enableSuggestions: false,
                       autofocus: true,
                       focusNode: _mobileFocusNode,
                       maxLines: null,
@@ -717,8 +721,8 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
     if (renderObject is RenderBox) {
       final size = renderObject.size;
       Offset pos = renderObject.localToGlobal(Offset.zero);
-      gFFI.cursorModel.keyHelpToolsRect =
-          Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
+      gFFI.cursorModel.keyHelpToolsVisibilityChanged(
+          Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height));
     }
   }
 
@@ -730,7 +734,7 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
         inputModel.command;
 
     if (!_pin && !hasModifierOn && !widget.requestShow) {
-      gFFI.cursorModel.keyHelpToolsRect = null;
+      gFFI.cursorModel.keyHelpToolsVisibilityChanged(null);
       return Offstage();
     }
     final size = MediaQuery.of(context).size;
