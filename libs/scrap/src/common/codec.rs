@@ -21,8 +21,8 @@ use crate::{
 use hbb_common::{
     anyhow::anyhow,
     bail,
-    config::PeerConfig,
-    log,
+    config::{keys::OPTION_ENABLE_HWCODEC, option2bool, Config, PeerConfig},
+    lazy_static, log,
     message_proto::{
         supported_decoding::PreferCodec, video_frame, Chroma, CodecAbility, EncodedVideoFrames,
         SupportedDecoding, SupportedEncoding, VideoFrame,
@@ -31,8 +31,6 @@ use hbb_common::{
     tokio::time::Instant,
     ResultType,
 };
-#[cfg(any(feature = "hwcodec", feature = "mediacodec", feature = "vram"))]
-use hbb_common::{config::Config2, lazy_static};
 
 lazy_static::lazy_static! {
     static ref PEER_DECODINGS: Arc<Mutex<HashMap<i32, SupportedDecoding>>> = Default::default();
@@ -76,6 +74,8 @@ pub trait EncoderApi {
     fn latency_free(&self) -> bool;
 
     fn is_hardware(&self) -> bool;
+
+    fn disable(&self);
 }
 
 pub struct Encoder {
@@ -144,11 +144,7 @@ impl Encoder {
                 }),
                 Err(e) => {
                     log::error!("new hw encoder failed: {e:?}, clear config");
-                    #[cfg(target_os = "android")]
-                    crate::android::ffi::clear_codec_info();
-                    #[cfg(not(target_os = "android"))]
-                    hbb_common::config::HwCodecConfig::clear_ram();
-                    Self::update(EncodingUpdate::Check);
+                    HwCodecConfig::clear(false, true);
                     *ENCODE_CODEC_FORMAT.lock().unwrap() = CodecFormat::VP9;
                     Err(e)
                 }
@@ -160,8 +156,7 @@ impl Encoder {
                 }),
                 Err(e) => {
                     log::error!("new vram encoder failed: {e:?}, clear config");
-                    hbb_common::config::HwCodecConfig::clear_vram();
-                    Self::update(EncodingUpdate::Check);
+                    HwCodecConfig::clear(true, true);
                     *ENCODE_CODEC_FORMAT.lock().unwrap() = CodecFormat::VP9;
                     Err(e)
                 }
@@ -204,7 +199,7 @@ impl Encoder {
         #[allow(unused_mut)]
         let mut h265vram_encoding = false;
         #[cfg(feature = "vram")]
-        if enable_vram_option() {
+        if enable_vram_option(true) {
             if _all_support_h264_decoding {
                 if VRamEncoder::available(CodecFormat::H264).len() > 0 {
                     h264vram_encoding = true;
@@ -343,7 +338,7 @@ impl Encoder {
             encoding.h265 |= HwRamEncoder::try_get(CodecFormat::H265).is_some();
         }
         #[cfg(feature = "vram")]
-        if enable_vram_option() {
+        if enable_vram_option(true) {
             encoding.h264 |= VRamEncoder::available(CodecFormat::H264).len() > 0;
             encoding.h265 |= VRamEncoder::available(CodecFormat::H265).len() > 0;
         }
@@ -419,7 +414,7 @@ impl Encoder {
 impl Decoder {
     pub fn supported_decodings(
         id_for_perfer: Option<&str>,
-        _flutter: bool,
+        _use_texture_render: bool,
         _luid: Option<i64>,
         mark_unsupported: &Vec<CodecFormat>,
     ) -> SupportedDecoding {
@@ -454,7 +449,7 @@ impl Decoder {
             };
         }
         #[cfg(feature = "vram")]
-        if enable_vram_option() && _flutter {
+        if enable_vram_option(false) && _use_texture_render {
             decoding.ability_h264 |= if VRamDecoder::available(CodecFormat::H264, _luid).len() > 0 {
                 1
             } else {
@@ -533,7 +528,7 @@ impl Decoder {
             }
             CodecFormat::H264 => {
                 #[cfg(feature = "vram")]
-                if !valid && enable_vram_option() && _luid.clone().unwrap_or_default() != 0 {
+                if !valid && enable_vram_option(false) && _luid.clone().unwrap_or_default() != 0 {
                     match VRamDecoder::new(format, _luid) {
                         Ok(v) => h264_vram = Some(v),
                         Err(e) => log::error!("create H264 vram decoder failed: {}", e),
@@ -559,7 +554,7 @@ impl Decoder {
             }
             CodecFormat::H265 => {
                 #[cfg(feature = "vram")]
-                if !valid && enable_vram_option() && _luid.clone().unwrap_or_default() != 0 {
+                if !valid && enable_vram_option(false) && _luid.clone().unwrap_or_default() != 0 {
                     match VRamDecoder::new(format, _luid) {
                         Ok(v) => h265_vram = Some(v),
                         Err(e) => log::error!("create H265 vram decoder failed: {}", e),
@@ -842,19 +837,37 @@ impl Decoder {
 #[cfg(any(feature = "hwcodec", feature = "mediacodec"))]
 pub fn enable_hwcodec_option() -> bool {
     if cfg!(windows) || cfg!(target_os = "linux") || cfg!(target_os = "android") {
-        if let Some(v) = Config2::get().options.get("enable-hwcodec") {
-            return v != "N";
-        }
-        return true; // default is true
+        return option2bool(
+            OPTION_ENABLE_HWCODEC,
+            &Config::get_option(OPTION_ENABLE_HWCODEC),
+        );
     }
     false
 }
 #[cfg(feature = "vram")]
-pub fn enable_vram_option() -> bool {
-    if let Some(v) = Config2::get().options.get("enable-hwcodec") {
-        return v != "N";
+pub fn enable_vram_option(encode: bool) -> bool {
+    if cfg!(windows) {
+        let enable = option2bool(
+            OPTION_ENABLE_HWCODEC,
+            &Config::get_option(OPTION_ENABLE_HWCODEC),
+        );
+        if encode {
+            enable && enable_directx_capture()
+        } else {
+            enable
+        }
+    } else {
+        false
     }
-    return true; // default is true
+}
+
+#[cfg(windows)]
+pub fn enable_directx_capture() -> bool {
+    use hbb_common::config::keys::OPTION_ENABLE_DIRECTX_CAPTURE as OPTION;
+    option2bool(
+        OPTION,
+        &Config::get_option(hbb_common::config::keys::OPTION_ENABLE_DIRECTX_CAPTURE),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

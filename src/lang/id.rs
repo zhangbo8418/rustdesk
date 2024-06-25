@@ -613,5 +613,14 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("clear_Wayland_screen_selection_tip", ""),
         ("confirm_clear_Wayland_screen_selection_tip", ""),
         ("android_new_voice_call_tip", ""),
+        ("texture_render_tip", ""),
+        ("Use texture rendering", ""),
+        ("Floating window", ""),
+        ("floating_window_tip", ""),
+        ("Keep screen on", ""),
+        ("Never", ""),
+        ("During controlled", ""),
+        ("During service is on", ""),
+        ("Capture screen using DirectX", ""),
     ].iter().cloned().collect();
 }

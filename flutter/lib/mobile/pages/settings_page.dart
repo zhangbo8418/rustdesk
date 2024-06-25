@@ -35,10 +35,41 @@ class SettingsPage extends StatefulWidget implements PageShape {
 
 const url = 'https://rustdesk.com/';
 
+enum KeepScreenOn {
+  never,
+  duringControlled,
+  serviceOn,
+}
+
+String _keepScreenOnToOption(KeepScreenOn value) {
+  switch (value) {
+    case KeepScreenOn.never:
+      return 'never';
+    case KeepScreenOn.duringControlled:
+      return 'during-controlled';
+    case KeepScreenOn.serviceOn:
+      return 'service-on';
+  }
+}
+
+KeepScreenOn optionToKeepScreenOn(String value) {
+  switch (value) {
+    case 'never':
+      return KeepScreenOn.never;
+    case 'service-on':
+      return KeepScreenOn.serviceOn;
+    default:
+      return KeepScreenOn.duringControlled;
+  }
+}
+
 class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
-  final _hasIgnoreBattery = androidVersion >= 26;
+  final _hasIgnoreBattery =
+      false; //androidVersion >= 26; // remove because not work on every device
   var _ignoreBatteryOpt = false;
   var _enableStartOnBoot = false;
+  var _floatingWindowDisabled = false;
+  var _keepScreenOn = KeepScreenOn.duringControlled; // relay on floating window
   var _enableAbr = false;
   var _denyLANDiscovery = false;
   var _onlyWhiteList = false;
@@ -57,6 +88,27 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    _enableAbr = option2bool(
+        kOptionEnableAbr, bind.mainGetOptionSync(key: kOptionEnableAbr));
+    _denyLANDiscovery = !option2bool(kOptionEnableLanDiscovery,
+        bind.mainGetOptionSync(key: kOptionEnableLanDiscovery));
+    _onlyWhiteList = (bind.mainGetOptionSync(key: kOptionWhitelist)) !=
+        defaultOptionWhitelist;
+    _enableDirectIPAccess = option2bool(
+        kOptionDirectServer, bind.mainGetOptionSync(key: kOptionDirectServer));
+    _enableRecordSession = option2bool(kOptionEnableRecordSession,
+        bind.mainGetOptionSync(key: kOptionEnableRecordSession));
+    _enableHardwareCodec = option2bool(kOptionEnableHwcodec,
+        bind.mainGetOptionSync(key: kOptionEnableHwcodec));
+    _autoRecordIncomingSession = option2bool(kOptionAllowAutoRecordIncoming,
+        bind.mainGetOptionSync(key: kOptionAllowAutoRecordIncoming));
+    _localIP = bind.mainGetOptionSync(key: 'local-ip-addr');
+    _directAccessPort = bind.mainGetOptionSync(key: kOptionDirectAccessPort);
+    _allowAutoDisconnect = option2bool(kOptionAllowAutoDisconnect,
+        bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
+    _autoDisconnectTimeout =
+        bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
 
     () async {
       var update = false;
@@ -86,67 +138,21 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         _enableStartOnBoot = enableStartOnBoot;
       }
 
-      final enableAbrRes = option2bool(
-          kOptionEnableAbr, await bind.mainGetOption(key: kOptionEnableAbr));
-      if (enableAbrRes != _enableAbr) {
+      var floatingWindowDisabled =
+          bind.mainGetLocalOption(key: kOptionDisableFloatingWindow) == "Y" ||
+              !await AndroidPermissionManager.check(kSystemAlertWindow);
+      if (floatingWindowDisabled != _floatingWindowDisabled) {
         update = true;
-        _enableAbr = enableAbrRes;
+        _floatingWindowDisabled = floatingWindowDisabled;
       }
 
-      final denyLanDiscovery = !option2bool('enable-lan-discovery',
-          await bind.mainGetOption(key: 'enable-lan-discovery'));
-      if (denyLanDiscovery != _denyLANDiscovery) {
+      final keepScreenOn = _floatingWindowDisabled
+          ? KeepScreenOn.never
+          : optionToKeepScreenOn(
+              bind.mainGetLocalOption(key: kOptionKeepScreenOn));
+      if (keepScreenOn != _keepScreenOn) {
         update = true;
-        _denyLANDiscovery = denyLanDiscovery;
-      }
-
-      final onlyWhiteList = (await bind.mainGetOption(key: kOptionWhitelist)) !=
-          defaultOptionWhitelist;
-      if (onlyWhiteList != _onlyWhiteList) {
-        update = true;
-        _onlyWhiteList = onlyWhiteList;
-      }
-
-      final enableDirectIPAccess = option2bool(kOptionDirectServer,
-          await bind.mainGetOption(key: kOptionDirectServer));
-      if (enableDirectIPAccess != _enableDirectIPAccess) {
-        update = true;
-        _enableDirectIPAccess = enableDirectIPAccess;
-      }
-
-      final enableRecordSession = option2bool(kOptionEnableRecordSession,
-          await bind.mainGetOption(key: kOptionEnableRecordSession));
-      if (enableRecordSession != _enableRecordSession) {
-        update = true;
-        _enableRecordSession = enableRecordSession;
-      }
-
-      final enableHardwareCodec = option2bool(kOptionEnableHwcodec,
-          await bind.mainGetOption(key: kOptionEnableHwcodec));
-      if (_enableHardwareCodec != enableHardwareCodec) {
-        update = true;
-        _enableHardwareCodec = enableHardwareCodec;
-      }
-
-      final autoRecordIncomingSession = option2bool(
-          kOptionAllowAutoRecordIncoming,
-          await bind.mainGetOption(key: kOptionAllowAutoRecordIncoming));
-      if (autoRecordIncomingSession != _autoRecordIncomingSession) {
-        update = true;
-        _autoRecordIncomingSession = autoRecordIncomingSession;
-      }
-
-      final localIP = await bind.mainGetOption(key: 'local-ip-addr');
-      if (localIP != _localIP) {
-        update = true;
-        _localIP = localIP;
-      }
-
-      final directAccessPort =
-          await bind.mainGetOption(key: kOptionDirectAccessPort);
-      if (directAccessPort != _directAccessPort) {
-        update = true;
-        _directAccessPort = directAccessPort;
+        _keepScreenOn = keepScreenOn;
       }
 
       final fingerprint = await bind.mainGetFingerprint();
@@ -160,21 +166,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         update = true;
         _buildDate = buildDate;
       }
-
-      final allowAutoDisconnect = option2bool(kOptionAllowAutoDisconnect,
-          await bind.mainGetOption(key: kOptionAllowAutoDisconnect));
-      if (allowAutoDisconnect != _allowAutoDisconnect) {
-        update = true;
-        _allowAutoDisconnect = allowAutoDisconnect;
-      }
-
-      final autoDisconnectTimeout =
-          await bind.mainGetOption(key: kOptionAutoDisconnectTimeout);
-      if (autoDisconnectTimeout != _autoDisconnectTimeout) {
-        update = true;
-        _autoDisconnectTimeout = autoDisconnectTimeout;
-      }
-
       if (update) {
         setState(() {});
       }
@@ -301,10 +292,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         onToggle: isOptionFixed(kOptionEnableAbr)
             ? null
             : (v) async {
-                await bind.mainSetOption(
-                    key: kOptionEnableAbr, value: v ? defaultOptionYes : "N");
-                final newValue =
-                    await bind.mainGetOption(key: kOptionEnableAbr) != "N";
+                await mainSetBoolOption(kOptionEnableAbr, v);
+                final newValue = await mainGetBoolOption(kOptionEnableAbr);
                 setState(() {
                   _enableAbr = newValue;
                 });
@@ -316,12 +305,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         onToggle: isOptionFixed(kOptionEnableRecordSession)
             ? null
             : (v) async {
-                await bind.mainSetOption(
-                    key: kOptionEnableRecordSession,
-                    value: v ? defaultOptionYes : "N");
+                await mainSetBoolOption(kOptionEnableRecordSession, v);
                 final newValue =
-                    await bind.mainGetOption(key: kOptionEnableRecordSession) !=
-                        "N";
+                    await mainGetBoolOption(kOptionEnableRecordSession);
                 setState(() {
                   _enableRecordSession = newValue;
                 });
@@ -493,6 +479,56 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           gFFI.invokeMethod(AndroidChannel.kSetStartOnBootOpt, toValue);
         }));
 
+    onFloatingWindowChanged(bool toValue) async {
+      if (toValue) {
+        if (!await AndroidPermissionManager.check(kSystemAlertWindow)) {
+          if (!await AndroidPermissionManager.request(kSystemAlertWindow)) {
+            return;
+          }
+        }
+      }
+      final disable = !toValue;
+      bind.mainSetLocalOption(
+          key: kOptionDisableFloatingWindow,
+          value: disable ? 'Y' : defaultOptionNo);
+      setState(() => _floatingWindowDisabled = disable);
+      gFFI.serverModel.androidUpdatekeepScreenOn();
+    }
+
+    enhancementsTiles.add(SettingsTile.switchTile(
+        initialValue: !_floatingWindowDisabled,
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(translate('Floating window')),
+          Text('* ${translate('floating_window_tip')}',
+              style: Theme.of(context).textTheme.bodySmall),
+        ]),
+        onToggle: bind.mainIsOptionFixed(key: kOptionDisableFloatingWindow)
+            ? null
+            : onFloatingWindowChanged));
+
+    enhancementsTiles.add(_getPopupDialogRadioEntry(
+      title: 'Keep screen on',
+      list: [
+        _RadioEntry('Never', _keepScreenOnToOption(KeepScreenOn.never)),
+        _RadioEntry('During controlled',
+            _keepScreenOnToOption(KeepScreenOn.duringControlled)),
+        _RadioEntry('During service is on',
+            _keepScreenOnToOption(KeepScreenOn.serviceOn)),
+      ],
+      getter: () => _keepScreenOnToOption(_floatingWindowDisabled
+          ? KeepScreenOn.never
+          : optionToKeepScreenOn(
+              bind.mainGetLocalOption(key: kOptionKeepScreenOn))),
+      asyncSetter: isOptionFixed(kOptionKeepScreenOn) || _floatingWindowDisabled
+          ? null
+          : (value) async {
+              await bind.mainSetLocalOption(
+                  key: kOptionKeepScreenOn, value: value);
+              setState(() => _keepScreenOn = optionToKeepScreenOn(value));
+              gFFI.serverModel.androidUpdatekeepScreenOn();
+            },
+    ));
+
     final disabledSettings = bind.isDisableSettings();
     final settings = SettingsList(
       sections: [
@@ -551,12 +587,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               onToggle: isOptionFixed(kOptionEnableHwcodec)
                   ? null
                   : (v) async {
-                      await bind.mainSetOption(
-                          key: kOptionEnableHwcodec,
-                          value: v ? defaultOptionYes : "N");
+                      await mainSetBoolOption(kOptionEnableHwcodec, v);
                       final newValue =
-                          await bind.mainGetOption(key: kOptionEnableHwcodec) !=
-                              "N";
+                          await mainGetBoolOption(kOptionEnableHwcodec);
                       setState(() {
                         _enableHardwareCodec = newValue;
                       });
@@ -571,11 +604,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 title:
                     Text(translate('Automatically record incoming sessions')),
                 leading: Icon(Icons.videocam),
-                description: FutureBuilder(
-                    builder: (ctx, data) => Offstage(
-                        offstage: !data.hasData,
-                        child: Text("${translate("Directory")}: ${data.data}")),
-                    future: bind.mainVideoSaveDirectory(root: false)),
+                description: Text(
+                    "${translate("Directory")}: ${bind.mainVideoSaveDirectory(root: false)}"),
                 initialValue: _autoRecordIncomingSession,
                 onToggle: isOptionFixed(kOptionAllowAutoRecordIncoming)
                     ? null
@@ -919,7 +949,7 @@ class _RadioEntry {
 typedef _RadioEntryGetter = String Function();
 typedef _RadioEntrySetter = Future<void> Function(String);
 
-_getPopupDialogRadioEntry({
+SettingsTile _getPopupDialogRadioEntry({
   required String title,
   required List<_RadioEntry> list,
   required _RadioEntryGetter getter,
@@ -973,7 +1003,7 @@ _getPopupDialogRadioEntry({
 
   return SettingsTile(
     title: Text(translate(title)),
-    onPressed: (context) => showDialog(),
+    onPressed: asyncSetter == null ? null : (context) => showDialog(),
     value: Padding(
       padding: EdgeInsets.symmetric(vertical: 8),
       child: Obx(() => Text(translate(valueText.value))),

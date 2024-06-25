@@ -8,7 +8,6 @@ import 'package:flutter_hbb/common/widgets/dialog.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
-import 'package:flutter_hbb/models/desktop_render_texture.dart';
 import 'package:get/get.dart';
 
 bool isEditOsPassword = false;
@@ -116,7 +115,10 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     );
   }
   // paste
-  if (isMobile && perms['keyboard'] != false && perms['clipboard'] != false) {
+  if (isMobile &&
+      pi.platform != kPeerPlatformAndroid &&
+      perms['keyboard'] != false &&
+      perms['clipboard'] != false) {
     v.add(TTextMenu(
         child: Text(translate('Paste')),
         onPressed: () async {
@@ -565,7 +567,7 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         child: Text(translate('Disable clipboard'))));
   }
   // lock after session end
-  if (ffiModel.keyboard) {
+  if (ffiModel.keyboard && !ffiModel.isPeerAndroid) {
     final enabled = !ffiModel.viewOnly;
     final option = 'lock-after-session-end';
     final value =
@@ -581,8 +583,7 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         child: Text(translate('Lock after session end'))));
   }
 
-  if (useTextureRender &&
-      pi.isSupportMultiDisplay &&
+  if (pi.isSupportMultiDisplay &&
       PrivacyModeState.find(id).isEmpty &&
       pi.displaysCount.value > 1 &&
       bind.mainGetUserDefaultOption(key: kKeyShowMonitorsToolbar) == 'Y') {
@@ -594,13 +595,13 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         onChanged: (value) {
           if (value == null) return;
           bind.sessionSetDisplaysAsIndividualWindows(
-              sessionId: sessionId, value: value ? 'Y' : '');
+              sessionId: sessionId, value: value ? 'Y' : 'N');
         },
         child: Text(translate('Show displays as individual windows'))));
   }
 
   final isMultiScreens = !isWeb && (await getScreenRectList()).length > 1;
-  if (useTextureRender && pi.isSupportMultiDisplay && isMultiScreens) {
+  if (pi.isSupportMultiDisplay && isMultiScreens) {
     final value = bind.sessionGetUseAllMyDisplaysForTheRemoteSession(
             sessionId: ffi.sessionId) ==
         'Y';
@@ -609,7 +610,7 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         onChanged: (value) {
           if (value == null) return;
           bind.sessionSetUseAllMyDisplaysForTheRemoteSession(
-              sessionId: sessionId, value: value ? 'Y' : '');
+              sessionId: sessionId, value: value ? 'Y' : 'N');
         },
         child: Text(translate('Use all my displays for the remote session'))));
   }

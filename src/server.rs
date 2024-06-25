@@ -459,9 +459,6 @@ pub async fn start_server(is_server: bool) {
         log::info!("DISPLAY={:?}", std::env::var("DISPLAY"));
         log::info!("XAUTHORITY={:?}", std::env::var("XAUTHORITY"));
     }
-    #[cfg(feature = "hwcodec")]
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    scrap::hwcodec::start_check_process(false);
     #[cfg(windows)]
     hbb_common::platform::windows::start_cpu_performance_monitor();
 
@@ -470,10 +467,9 @@ pub async fn start_server(is_server: bool) {
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
                 log::error!("Failed to start ipc: {}", err);
-                #[cfg(all(windows, feature = "flutter"))]
-                if crate::is_server() && crate::ipc::test_ipc_connection().is_ok() {
+                if crate::is_server() {
                     log::error!("ipc is occupied by another process, try kill it");
-                    crate::platform::try_kill_flutter_main_window_process();
+                    std::thread::spawn(stop_main_window_process).join().ok();
                 }
                 std::process::exit(-1);
             }
@@ -487,6 +483,9 @@ pub async fn start_server(is_server: bool) {
         tokio::spawn(async { sync_and_watch_config_dir().await });
         #[cfg(target_os = "windows")]
         crate::platform::try_kill_broker();
+        #[cfg(feature = "hwcodec")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        scrap::hwcodec::start_check_process();
         crate::RendezvousMediator::start_all().await;
     } else {
         match crate::ipc::connect(1000, "").await {
@@ -507,6 +506,9 @@ pub async fn start_server(is_server: bool) {
                         }
                     }
                 }
+                #[cfg(feature = "hwcodec")]
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                crate::ipc::client_get_hwcodec_config_thread(0);
             }
             Err(err) => {
                 log::info!("server not started (will try to start): {}", err);
@@ -630,4 +632,20 @@ async fn sync_and_watch_config_dir() {
         }
     }
     log::warn!("skipped config sync");
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn stop_main_window_process() {
+    // this may also kill another --server process,
+    // but --server usually can be auto restarted by --service, so it is ok
+    if let Ok(mut conn) = crate::ipc::connect(1000, "").await {
+        conn.send(&crate::ipc::Data::Close).await.ok();
+    }
+    #[cfg(windows)]
+    {
+        // in case above failure, e.g. zombie process
+        if let Err(e) = crate::platform::try_kill_rustdesk_main_window_process() {
+            log::error!("kill failed: {}", e);
+        }
+    }
 }

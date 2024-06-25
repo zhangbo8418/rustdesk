@@ -613,5 +613,14 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("clear_Wayland_screen_selection_tip", "Tras borrar la selección de pantalla, puedes volver a seleccionarla para compartir."),
         ("confirm_clear_Wayland_screen_selection_tip", "¿Seguro que deseas borrar la selección de pantalla Wayland?"),
         ("android_new_voice_call_tip", "Se ha recibido una nueva solicitud de llamada de voz. Si aceptas el audio cambiará a comunicación de voz."),
+        ("texture_render_tip", "Usar renderizado de texturas para hacer las imágenes más suaves."),
+        ("Use texture rendering", "Usar renderizado de texturas"),
+        ("Floating window", "Ventana flotante"),
+        ("floating_window_tip", "Ayuda a mantener el servicio de RustDesk de fondo"),
+        ("Keep screen on", "Mantener la pantalla encendida"),
+        ("Never", "Nunca"),
+        ("During controlled", "Mientras está siendo controlado"),
+        ("During service is on", "Mientras el servicio está activo"),
+        ("Capture screen using DirectX", ""),
     ].iter().cloned().collect();
 }

@@ -102,19 +102,16 @@ pub fn peer_get_default_sessions_count(id: String) -> SyncReturn<usize> {
     SyncReturn(sessions::get_session_count(id, ConnType::DEFAULT_CONN))
 }
 
-pub fn session_add_existed_sync(id: String, session_id: SessionID) -> SyncReturn<String> {
-    if let Err(e) = session_add_existed(id.clone(), session_id) {
+pub fn session_add_existed_sync(
+    id: String,
+    session_id: SessionID,
+    displays: Vec<i32>,
+) -> SyncReturn<String> {
+    if let Err(e) = session_add_existed(id.clone(), session_id, displays) {
         SyncReturn(format!("Failed to add session with id {}, {}", &id, e))
     } else {
         SyncReturn("".to_owned())
     }
-}
-
-pub fn session_try_add_display(session_id: SessionID, displays: Vec<i32>) -> SyncReturn<()> {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.capture_displays(displays, vec![], vec![]);
-    }
-    SyncReturn(())
 }
 
 pub fn session_add_sync(
@@ -151,6 +148,23 @@ pub fn session_start(
     id: String,
 ) -> ResultType<()> {
     session_start_(&session_id, &id, events2ui)
+}
+
+pub fn session_start_with_displays(
+    events2ui: StreamSink<EventToUI>,
+    session_id: SessionID,
+    id: String,
+    displays: Vec<i32>,
+) -> ResultType<()> {
+    session_start_(&session_id, &id, events2ui)?;
+
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.capture_displays(displays.clone(), vec![], vec![]);
+        for display in displays {
+            session.refresh_video(display as _);
+        }
+    }
+    Ok(())
 }
 
 pub fn session_get_remember(session_id: SessionID) -> Option<bool> {
@@ -711,9 +725,8 @@ pub fn session_change_resolution(session_id: SessionID, display: i32, width: i32
     }
 }
 
-pub fn session_set_size(_session_id: SessionID, _display: usize, _width: usize, _height: usize) {
-    #[cfg(feature = "flutter_texture_render")]
-    super::flutter::session_set_size(_session_id, _display, _width, _height)
+pub fn session_set_size(session_id: SessionID, display: usize, width: usize, height: usize) {
+    super::flutter::session_set_size(session_id, display, width, height)
 }
 
 pub fn session_send_selected_session_id(session_id: SessionID, sid: String) {
@@ -774,13 +787,13 @@ pub fn main_show_option(_key: String) -> SyncReturn<bool> {
 
 pub fn main_set_option(key: String, value: String) {
     if key.eq("custom-rendezvous-server") {
-        set_option(key, value);
+        set_option(key, value.clone());
         #[cfg(target_os = "android")]
         crate::rendezvous_mediator::RendezvousMediator::restart();
         #[cfg(any(target_os = "android", target_os = "ios", feature = "cli"))]
         crate::common::test_rendezvous_server();
     } else {
-        set_option(key, value);
+        set_option(key, value.clone());
     }
 }
 
@@ -892,12 +905,25 @@ pub fn main_get_local_option(key: String) -> SyncReturn<String> {
     SyncReturn(get_local_option(key))
 }
 
+pub fn main_get_use_texture_render() -> SyncReturn<bool> {
+    SyncReturn(use_texture_render())
+}
+
 pub fn main_get_env(key: String) -> SyncReturn<String> {
     SyncReturn(std::env::var(key).unwrap_or_default())
 }
 
 pub fn main_set_local_option(key: String, value: String) {
-    set_local_option(key, value)
+    let is_texture_render_key = key.eq(config::keys::OPTION_TEXTURE_RENDER);
+    set_local_option(key, value.clone());
+    if is_texture_render_key {
+        let session_event = [("v", &value)];
+        for session in sessions::get_sessions() {
+            session.push_event("use_texture_render", &session_event, &[]);
+            session.use_texture_render_changed();
+            session.ui_handler.update_use_texture_render();
+        }
+    }
 }
 
 // We do use use `main_get_local_option` and `main_set_local_option`.
@@ -1168,8 +1194,8 @@ pub fn main_change_language(lang: String) {
     send_to_cm(&crate::ipc::Data::Language(lang));
 }
 
-pub fn main_video_save_directory(root: bool) -> String {
-    video_save_directory(root)
+pub fn main_video_save_directory(root: bool) -> SyncReturn<String> {
+    SyncReturn(video_save_directory(root))
 }
 
 pub fn main_set_user_default_option(key: String, value: String) {
@@ -1813,19 +1839,10 @@ pub fn main_is_login_wayland() -> SyncReturn<bool> {
     SyncReturn(is_login_wayland())
 }
 
-pub fn main_start_pa() {
-    #[cfg(target_os = "linux")]
-    std::thread::spawn(crate::ipc::start_pa);
-}
-
 pub fn main_hide_docker() -> SyncReturn<bool> {
     #[cfg(target_os = "macos")]
     crate::platform::macos::hide_dock();
     SyncReturn(true)
-}
-
-pub fn main_has_pixelbuffer_texture_render() -> SyncReturn<bool> {
-    SyncReturn(cfg!(feature = "flutter_texture_render"))
 }
 
 pub fn main_has_file_clipboard() -> SyncReturn<bool> {
@@ -1895,6 +1912,10 @@ pub fn is_disable_ab() -> SyncReturn<bool> {
 
 pub fn is_disable_account() -> SyncReturn<bool> {
     SyncReturn(config::is_disable_account())
+}
+
+pub fn is_disable_group_panel() -> SyncReturn<bool> {
+    SyncReturn(LocalConfig::get_option("disable-group-panel") == "Y")
 }
 
 // windows only
@@ -2168,7 +2189,8 @@ pub fn session_request_new_display_init_msgs(session_id: SessionID, display: usi
 pub mod server_side {
     use hbb_common::{config, log};
     use jni::{
-        objects::{JClass, JString},
+        errors::{Error as JniError, Result as JniResult},
+        objects::{JClass, JObject, JString},
         sys::jstring,
         JNIEnv,
     };
@@ -2225,5 +2247,21 @@ pub mod server_side {
     #[no_mangle]
     pub unsafe extern "system" fn Java_ffi_FFI_refreshScreen(_env: JNIEnv, _class: JClass) {
         crate::server::video_service::refresh()
+    }
+
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_ffi_FFI_getLocalOption(
+        env: JNIEnv,
+        _class: JClass,
+        key: JString,
+    ) -> jstring {
+        let mut env = env;
+        let res = if let Ok(key) = env.get_string(&key) {
+            let key: String = key.into();
+            super::get_local_option(key)
+        } else {
+            "".into()
+        };
+        return env.new_string(res).unwrap_or_default().into_raw();
     }
 }
