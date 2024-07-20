@@ -443,14 +443,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         });
       }
     } else if (isMacOS) {
-      if (!(bind.isOutgoingOnly() ||
-          bind.mainIsCanScreenRecording(prompt: false))) {
+      final isOutgoingOnly = bind.isOutgoingOnly();
+      if (!(isOutgoingOnly || bind.mainIsCanScreenRecording(prompt: false))) {
         return buildInstallCard("Permissions", "config_screen", "Configure",
             () async {
           bind.mainIsCanScreenRecording(prompt: true);
           watchIsCanScreenRecording = true;
         }, help: 'Help', link: translate("doc_mac_permission"));
-      } else if (!bind.mainIsProcessTrusted(prompt: false)) {
+      } else if (!isOutgoingOnly && !bind.mainIsProcessTrusted(prompt: false)) {
         return buildInstallCard("Permissions", "config_acc", "Configure",
             () async {
           bind.mainIsProcessTrusted(prompt: true);
@@ -462,7 +462,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           bind.mainIsCanInputMonitoring(prompt: true);
           watchIsInputMonitoring = true;
         }, help: 'Help', link: translate("doc_mac_permission"));
-      } else if (!svcStopped.value &&
+      } else if (!isOutgoingOnly &&
+          !svcStopped.value &&
           bind.mainIsInstalled() &&
           !bind.mainIsInstalledDaemon(prompt: false)) {
         return buildInstallCard("", "install_daemon_tip", "Install", () async {
@@ -545,6 +546,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       String? link,
       bool? closeButton,
       String? closeOption}) {
+    if (bind.mainGetBuildinOption(key: kOptionHideHelpCards) == 'Y' &&
+        content != 'install_daemon_tip') {
+      return const SizedBox();
+    }
     void closeCard() async {
       if (closeOption != null) {
         await bind.mainSetLocalOption(key: closeOption, value: 'N');

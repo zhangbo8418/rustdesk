@@ -53,6 +53,9 @@ pub const PLATFORM_LINUX: &str = "Linux";
 pub const PLATFORM_MACOS: &str = "Mac OS";
 pub const PLATFORM_ANDROID: &str = "Android";
 
+pub const TIMER_OUT: Duration = Duration::from_secs(1);
+pub const DEFAULT_KEEP_ALIVE: i32 = 60_000;
+
 const MIN_VER_MULTI_UI_SESSION: &str = "1.2.4";
 
 pub mod input {
@@ -1338,6 +1341,7 @@ fn read_custom_client_advanced_settings(
     map_display_settings: &HashMap<String, &&str>,
     map_local_settings: &HashMap<String, &&str>,
     map_settings: &HashMap<String, &&str>,
+    map_buildin_settings: &HashMap<String, &&str>,
     is_override: bool,
 ) {
     let mut display_settings = if is_override {
@@ -1355,6 +1359,8 @@ fn read_custom_client_advanced_settings(
     } else {
         config::DEFAULT_SETTINGS.write().unwrap()
     };
+    let mut buildin_settings = config::BUILDIN_SETTINGS.write().unwrap();
+
     if let Some(settings) = settings.as_object() {
         for (k, v) in settings {
             let Some(v) = v.as_str() else {
@@ -1366,6 +1372,8 @@ fn read_custom_client_advanced_settings(
                 local_settings.insert(k2.to_string(), v.to_owned());
             } else if let Some(k2) = map_settings.get(k) {
                 server_settings.insert(k2.to_string(), v.to_owned());
+            } else if let Some(k2) = map_buildin_settings.get(k) {
+                buildin_settings.insert(k2.to_string(), v.to_owned());
             } else {
                 let k2 = k.replace("_", "-");
                 let k = k2.replace("-", "_");
@@ -1378,6 +1386,9 @@ fn read_custom_client_advanced_settings(
                 // server
                 server_settings.insert(k.clone(), v.to_owned());
                 server_settings.insert(k2.clone(), v.to_owned());
+                // buildin
+                buildin_settings.insert(k.clone(), v.to_owned());
+                buildin_settings.insert(k2.clone(), v.to_owned());
             }
         }
     }
@@ -1440,12 +1451,17 @@ pub fn read_custom_client(config: &str) {
     for s in config::keys::KEYS_SETTINGS {
         map_settings.insert(s.replace("_", "-"), s);
     }
+    let mut buildin_settings = HashMap::new();
+    for s in config::keys::KEYS_BUILDIN_SETTINGS {
+        buildin_settings.insert(s.replace("_", "-"), s);
+    }
     if let Some(default_settings) = data.remove("default-settings") {
         read_custom_client_advanced_settings(
             default_settings,
             &map_display_settings,
             &map_local_settings,
             &map_settings,
+            &buildin_settings,
             false,
         );
     }
@@ -1455,6 +1471,7 @@ pub fn read_custom_client(config: &str) {
             &map_display_settings,
             &map_local_settings,
             &map_settings,
+            &buildin_settings,
             true,
         );
     }

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
+import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:settings_ui/settings_ui.dart';
@@ -83,6 +84,9 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _fingerprint = "";
   var _buildDate = "";
   var _autoDisconnectTimeout = "";
+  var _hideServer = false;
+  var _hideProxy = false;
+  var _hideNetwork = false;
 
   @override
   void initState() {
@@ -109,6 +113,11 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         bind.mainGetOptionSync(key: kOptionAllowAutoDisconnect));
     _autoDisconnectTimeout =
         bind.mainGetOptionSync(key: kOptionAutoDisconnectTimeout);
+    _hideServer =
+        bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y';
+    _hideProxy = bind.mainGetBuildinOption(key: kOptionHideProxySetting) == 'Y';
+    _hideNetwork =
+        bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) == 'Y';
 
     () async {
       var update = false;
@@ -530,6 +539,8 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     ));
 
     final disabledSettings = bind.isDisableSettings();
+    final hideSecuritySettings =
+        bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) == 'Y';
     final settings = SettingsList(
       sections: [
         customClientSection,
@@ -553,12 +564,19 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ],
           ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
-          if (!disabledSettings)
+          if (!disabledSettings && !_hideNetwork && !_hideServer)
             SettingsTile(
                 title: Text(translate('ID/Relay Server')),
                 leading: Icon(Icons.cloud),
                 onPressed: (context) {
                   showServerSettings(gFFI.dialogManager);
+                }),
+          if (!isIOS && !_hideNetwork && !_hideProxy)
+            SettingsTile(
+                title: Text(translate('Socks5/Http(s) Proxy')),
+                leading: Icon(Icons.network_ping),
+                onPressed: (context) {
+                  changeSocks5Proxy();
                 }),
           SettingsTile(
               title: Text(translate('Language')),
@@ -625,13 +643,19 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               ),
             ],
           ),
-        if (isAndroid && !disabledSettings && !outgoingOnly)
+        if (isAndroid &&
+            !disabledSettings &&
+            !outgoingOnly &&
+            !hideSecuritySettings)
           SettingsSection(
             title: Text(translate("Share Screen")),
             tiles: shareScreenTiles,
           ),
         if (!bind.isIncomingOnly()) defaultDisplaySection(),
-        if (isAndroid && !disabledSettings && !outgoingOnly)
+        if (isAndroid &&
+            !disabledSettings &&
+            !outgoingOnly &&
+            !hideSecuritySettings)
           SettingsSection(
             title: Text(translate("Enhancements")),
             tiles: enhancementsTiles,
