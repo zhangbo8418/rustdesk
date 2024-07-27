@@ -34,6 +34,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   final _svcStopped = Get.find<RxBool>(tag: 'stop-service');
   final _svcIsUsingPublicServer = true.obs;
   Timer? _updateTimer;
+  final DateTime _appStartTime = DateTime.now();
 
   double get em => 14.0;
   double? get height => bind.isIncomingOnly() ? null : em * 3;
@@ -176,7 +177,8 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
       stateGlobal.svcStatus.value = SvcStatus.notReady;
     } else if (statusNum == 1) {
       stateGlobal.svcStatus.value = SvcStatus.ready;
-      if (preStatus != SvcStatus.ready) {
+      if (preStatus != SvcStatus.ready &&
+          DateTime.now().difference(_appStartTime) > Duration(seconds: 5)) {
         gFFI.userModel.refreshCurrentUser();
       }
     } else {
@@ -212,14 +214,14 @@ class _ConnectionPageState extends State<ConnectionPage>
   void initState() {
     super.initState();
     if (_idController.text.isEmpty) {
-      () async {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
         final lastRemoteId = await bind.mainGetLastRemoteId();
         if (lastRemoteId != _idController.id) {
           setState(() {
             _idController.id = lastRemoteId;
           });
         }
-      }();
+      });
     }
     Get.put<IDTextEditingController>(_idController);
     windowManager.addListener(this);

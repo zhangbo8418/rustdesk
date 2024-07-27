@@ -372,7 +372,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   initState() {
     super.initState();
 
-    Future.delayed(Duration.zero, () async {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _fractionX.value = double.tryParse(await bind.sessionGetOption(
                   sessionId: widget.ffi.sessionId,
                   arg: 'remote-menubar-drag-x') ??
@@ -1033,11 +1033,6 @@ class _DisplayMenuState extends State<_DisplayMenu> {
   String get id => widget.id;
 
   @override
-  void initState() {
-    super.initState();
-  }
-
-  @override
   Widget build(BuildContext context) {
     _screenAdjustor.updateScreen();
     menuChildrenGetter() {
@@ -1278,7 +1273,9 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
   @override
   void initState() {
     super.initState();
-    _getLocalResolutionWayland();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _getLocalResolutionWayland();
+    });
   }
 
   Rect? scaledRect() {

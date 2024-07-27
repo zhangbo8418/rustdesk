@@ -384,7 +384,7 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'use_texture_render') {
         _handleUseTextureRender(evt, sessionId, peerId);
       } else {
-        debugPrint('Unknown event name: $name');
+        debugPrint('Event is not handled in the fixed branch: $name');
       }
     };
   }
@@ -1172,6 +1172,8 @@ class ImageModel with ChangeNotifier {
   get useTextureRender => _useTextureRender;
 
   addCallbackOnFirstImage(Function(String) cb) => callbacksOnFirstImage.add(cb);
+
+  clearImage() => _image = null;
 
   onRgba(int display, Uint8List rgba) {
     final pid = parent.target?.id;
@@ -2547,32 +2549,30 @@ class FFI {
           }
         } else if (message is EventToUI_Rgba) {
           final display = message.field0;
-          if (imageModel.useTextureRender || ffiModel.pi.forceTextureRender) {
-            //debugPrint("EventToUI_Rgba display:$display");
-            textureModel.setTextureType(display: display, gpuTexture: false);
+          // Fetch the image buffer from rust codes.
+          final sz = platformFFI.getRgbaSize(sessionId, display);
+          if (sz == 0) {
+            platformFFI.nextRgba(sessionId, display);
+            return;
+          }
+          final rgba = platformFFI.getRgba(sessionId, display, sz);
+          if (rgba != null) {
             onEvent2UIRgba();
+            imageModel.onRgba(display, rgba);
           } else {
-            // Fetch the image buffer from rust codes.
-            final sz = platformFFI.getRgbaSize(sessionId, display);
-            if (sz == 0) {
-              platformFFI.nextRgba(sessionId, display);
-              return;
-            }
-            final rgba = platformFFI.getRgba(sessionId, display, sz);
-            if (rgba != null) {
-              onEvent2UIRgba();
-              imageModel.onRgba(display, rgba);
-            } else {
-              platformFFI.nextRgba(sessionId, display);
-            }
+            platformFFI.nextRgba(sessionId, display);
           }
         } else if (message is EventToUI_Texture) {
           final display = message.field0;
-          debugPrint("EventToUI_Texture display:$display");
-          if (hasGpuTextureRender) {
-            textureModel.setTextureType(display: display, gpuTexture: true);
-            onEvent2UIRgba();
+          final gpuTexture = message.field1;
+          debugPrint(
+              "EventToUI_Texture display:$display, gpuTexture:$gpuTexture");
+          if (gpuTexture && !hasGpuTextureRender) {
+            debugPrint('the gpuTexture is not supported.');
+            return;
           }
+          textureModel.setTextureType(display: display, gpuTexture: gpuTexture);
+          onEvent2UIRgba();
         }
       }();
     });

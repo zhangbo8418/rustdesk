@@ -32,14 +32,18 @@ class DesktopServerPage extends StatefulWidget {
 class _DesktopServerPageState extends State<DesktopServerPage>
     with WindowListener, AutomaticKeepAliveClientMixin {
   final tabController = gFFI.serverModel.tabController;
-  @override
-  void initState() {
+
+  _DesktopServerPageState() {
     gFFI.ffiModel.updateEventListener(gFFI.sessionId, "");
-    windowManager.addListener(this);
     Get.put<DesktopTabController>(tabController);
     tabController.onRemoved = (_, id) {
       onRemoveId(id);
     };
+  }
+
+  @override
+  void initState() {
+    windowManager.addListener(this);
     super.initState();
   }
 
@@ -108,6 +112,28 @@ class ConnectionManagerState extends State<ConnectionManager>
     with WidgetsBindingObserver {
   final RxBool _block = false.obs;
 
+  ConnectionManagerState() {
+    gFFI.serverModel.tabController.onSelected = (client_id_str) {
+      final client_id = int.tryParse(client_id_str);
+      if (client_id != null) {
+        final client =
+            gFFI.serverModel.clients.firstWhereOrNull((e) => e.id == client_id);
+        if (client != null) {
+          gFFI.chatModel.changeCurrentKey(MessageKey(client.peerId, client.id));
+          if (client.unreadChatMessageCount.value > 0) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              client.unreadChatMessageCount.value = 0;
+              gFFI.chatModel.showChatPage(MessageKey(client.peerId, client.id));
+            });
+          }
+          windowManager.setTitle(getWindowNameWithId(client.peerId));
+          gFFI.cmFileModel.updateCurrentClientId(client.id);
+        }
+      }
+    };
+    gFFI.chatModel.isConnManager = true;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
@@ -121,25 +147,6 @@ class ConnectionManagerState extends State<ConnectionManager>
   @override
   void initState() {
     gFFI.serverModel.updateClientState();
-    gFFI.serverModel.tabController.onSelected = (client_id_str) {
-      final client_id = int.tryParse(client_id_str);
-      if (client_id != null) {
-        final client =
-            gFFI.serverModel.clients.firstWhereOrNull((e) => e.id == client_id);
-        if (client != null) {
-          gFFI.chatModel.changeCurrentKey(MessageKey(client.peerId, client.id));
-          if (client.unreadChatMessageCount.value > 0) {
-            Future.delayed(Duration.zero, () {
-              client.unreadChatMessageCount.value = 0;
-              gFFI.chatModel.showChatPage(MessageKey(client.peerId, client.id));
-            });
-          }
-          windowManager.setTitle(getWindowNameWithId(client.peerId));
-          gFFI.cmFileModel.updateCurrentClientId(client.id);
-        }
-      }
-    };
-    gFFI.chatModel.isConnManager = true;
     WidgetsBinding.instance.addObserver(this);
     super.initState();
   }
@@ -399,7 +406,10 @@ class _CmHeaderState extends State<_CmHeader>
         _time.value = _time.value + 1;
       }
     });
-    gFFI.serverModel.tabController.onSelected?.call(client.id.toString());
+    // Call onSelected in post frame callback, since we cannot guarantee that the callback will not call setState.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      gFFI.serverModel.tabController.onSelected?.call(client.id.toString());
+    });
   }
 
   @override
@@ -732,7 +742,8 @@ class _CmControlPanel extends StatelessWidget {
                 child: buildButton(context,
                     color: MyTheme.accent,
                     onClick: null, onTapDown: (details) async {
-                  final devicesInfo = await AudioInput.getDevicesInfo(true, true);
+                  final devicesInfo =
+                      await AudioInput.getDevicesInfo(true, true);
                   List<String> devices = devicesInfo['devices'] as List<String>;
                   if (devices.isEmpty) {
                     msgBox(
@@ -764,7 +775,8 @@ class _CmControlPanel extends StatelessWidget {
                                 value: d,
                                 groupValue: currentDevice,
                                 onChanged: (v) {
-                                  if (v != null) AudioInput.setDevice(v, true, true);
+                                  if (v != null)
+                                    AudioInput.setDevice(v, true, true);
                                 },
                                 child: Container(
                                   child: Text(

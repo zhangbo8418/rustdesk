@@ -88,17 +88,12 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _hideProxy = false;
   var _hideNetwork = false;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-
+  _SettingsState() {
     _enableAbr = option2bool(
         kOptionEnableAbr, bind.mainGetOptionSync(key: kOptionEnableAbr));
     _denyLANDiscovery = !option2bool(kOptionEnableLanDiscovery,
         bind.mainGetOptionSync(key: kOptionEnableLanDiscovery));
-    _onlyWhiteList = (bind.mainGetOptionSync(key: kOptionWhitelist)) !=
-        defaultOptionWhitelist;
+    _onlyWhiteList = whitelistNotEmpty();
     _enableDirectIPAccess = option2bool(
         kOptionDirectServer, bind.mainGetOptionSync(key: kOptionDirectServer));
     _enableRecordSession = option2bool(kOptionEnableRecordSession,
@@ -118,8 +113,14 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     _hideProxy = bind.mainGetBuildinOption(key: kOptionHideProxySetting) == 'Y';
     _hideNetwork =
         bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) == 'Y';
+  }
 
-    () async {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       var update = false;
 
       if (_hasIgnoreBattery) {
@@ -178,7 +179,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       if (update) {
         setState(() {});
       }
-    }();
+    });
   }
 
   @override
@@ -282,9 +283,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         initialValue: _onlyWhiteList,
         onToggle: (_) async {
           update() async {
-            final onlyWhiteList =
-                (await bind.mainGetOption(key: kOptionWhitelist)) !=
-                    defaultOptionWhitelist;
+            final onlyWhiteList = whitelistNotEmpty();
             if (onlyWhiteList != _onlyWhiteList) {
               setState(() {
                 _onlyWhiteList = onlyWhiteList;
@@ -810,7 +809,7 @@ void showThemeSettings(OverlayDialogManager dialogManager) async {
 void showAbout(OverlayDialogManager dialogManager) {
   dialogManager.show((setState, close, context) {
     return CustomAlertDialog(
-      title: Text('${translate('About')} RustDesk'),
+      title: Text(translate('About RustDesk')),
       content: Wrap(direction: Axis.vertical, spacing: 12, children: [
         Text('Version: $version'),
         InkWell(

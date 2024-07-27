@@ -50,19 +50,26 @@ class _ConnectionPageState extends State<ConnectionPage> {
   bool isPeersLoaded = false;
   StreamSubscription? _uniLinksSubscription;
 
+  _ConnectionPageState() {
+    if (!isWeb) _uniLinksSubscription = listenUniLinks();
+    _idController.addListener(() {
+      _idEmpty.value = _idController.text.isEmpty;
+    });
+    Get.put<IDTextEditingController>(_idController);
+  }
+
   @override
   void initState() {
     super.initState();
-    if (!isWeb) _uniLinksSubscription = listenUniLinks();
     if (_idController.text.isEmpty) {
-      () async {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
         final lastRemoteId = await bind.mainGetLastRemoteId();
         if (lastRemoteId != _idController.id) {
           setState(() {
             _idController.id = lastRemoteId;
           });
         }
-      }();
+      });
     }
     if (isAndroid) {
       if (!bind.isCustomClient()) {
@@ -72,11 +79,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
         });
       }
     }
-
-    _idController.addListener(() {
-      _idEmpty.value = _idController.text.isEmpty;
-    });
-    Get.put<IDTextEditingController>(_idController);
   }
 
   @override
@@ -395,7 +397,7 @@ class _WebMenuState extends State<WebMenu> {
               [
                 PopupMenuItem(
                   value: "about",
-                  child: Text('${translate('About')} RustDesk'),
+                  child: Text(translate('About RustDesk')),
                 )
               ];
         },

@@ -543,7 +543,7 @@ impl Client {
         conn: &mut Stream,
     ) -> ResultType<Option<Vec<u8>>> {
         let rs_pk = get_rs_pk(if key.is_empty() {
-            hbb_common::config::RS_PUB_KEY
+            config::RS_PUB_KEY
         } else {
             key
         });
@@ -2374,7 +2374,7 @@ fn get_hwcodec_config() {
             let start = std::time::Instant::now();
             if let Err(e) = crate::ipc::get_hwcodec_config_from_server() {
                 log::error!(
-                    "failed to get hwcodec config: {e:?}, elapsed: {:?}",
+                    "Failed to get hwcodec config: {e:?}, elapsed: {:?}",
                     start.elapsed()
                 );
             } else {
@@ -2625,7 +2625,7 @@ struct LoginErrorMsgBox {
 
 lazy_static::lazy_static! {
     static ref LOGIN_ERROR_MAP: Arc<HashMap<&'static str, LoginErrorMsgBox>> = {
-        use hbb_common::config::LINK_HEADLESS_LINUX_SUPPORT;
+        use config::LINK_HEADLESS_LINUX_SUPPORT;
         let map = HashMap::from([(LOGIN_SCREEN_WAYLAND, LoginErrorMsgBox{
             msgtype: "error",
             title: "Login Error",
@@ -2791,6 +2791,20 @@ pub async fn handle_hash(
     if password.is_empty() {
         try_get_password_from_personal_ab(lc.clone(), &mut password);
     }
+
+    if password.is_empty() {
+        let p =
+            crate::ui_interface::get_buildin_option(config::keys::OPTION_DEFAULT_CONNECT_PASSWORD);
+        if !p.is_empty() {
+            let mut hasher = Sha256::new();
+            hasher.update(p.clone());
+            hasher.update(&hash.salt);
+            let res = hasher.finalize();
+            password = res[..].into();
+            lc.write().unwrap().password_source = PasswordSource::SharedAb(p); // reuse SharedAb here
+        }
+    }
+
     lc.write().unwrap().password = password.clone();
     let password = if password.is_empty() {
         // login without password, the remote side can click accept
@@ -2813,7 +2827,7 @@ pub async fn handle_hash(
 #[inline]
 fn try_get_password_from_personal_ab(lc: Arc<RwLock<LoginConfigHandler>>, password: &mut Vec<u8>) {
     let access_token = LocalConfig::get_option("access_token");
-    let ab = hbb_common::config::Ab::load();
+    let ab = config::Ab::load();
     if !access_token.is_empty() && access_token == ab.access_token {
         let id = lc.read().unwrap().id.clone();
         if let Some(ab) = ab.ab_entries.iter().find(|a| a.personal()) {
@@ -2980,7 +2994,9 @@ pub trait Interface: Send + Clone + 'static + Sized {
         log::error!("Connection closed: {err}({errno})");
         if direct == Some(true)
             && ((cfg!(windows) && (errno == 10054 || err.contains("10054")))
-                || (!cfg!(windows) && (errno == 104 || err.contains("104"))))
+                || (!cfg!(windows) && (errno == 104 || err.contains("104")))
+                || (!err.contains("Failed") && err.contains("deadline")))
+        // deadline: https://github.com/rustdesk/rustdesk-server-pro/discussions/325, most likely comes from secure tcp timeout
         {
             relay_hint = true;
             if !received {

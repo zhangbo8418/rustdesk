@@ -89,7 +89,7 @@ pub fn stop_global_event_stream(app_type: String) {
 pub enum EventToUI {
     Event(String),
     Rgba(usize),
-    Texture(usize),
+    Texture(usize, bool), // (display, gpu_texture)
 }
 
 pub fn host_stop_system_key_propagate(_stopped: bool) {
@@ -1964,6 +1964,12 @@ pub fn is_preset_password() -> bool {
             #[cfg(any(target_os = "android", target_os = "ios"))]
             return p == &config::Config::get_permanent_password();
         })
+}
+
+// Don't call this function for desktop version.
+// We need this function because we want a sync return for mobile version.
+pub fn is_preset_password_mobile_only() -> SyncReturn<bool> {
+    SyncReturn(is_preset_password())
 }
 
 /// Send a url scheme through the ipc.
