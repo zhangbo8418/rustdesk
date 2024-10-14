@@ -1209,7 +1209,19 @@ class RustdeskImpl {
   }
 
   Future<String> mainLoadAb({dynamic hint}) {
-    return Future(() => js.context.callMethod('getByName', ['load_ab']));
+    Completer<String> completer = Completer();
+    Future<String> timeoutFuture = completer.future.timeout(
+      Duration(seconds: 2),
+      onTimeout: () {
+        completer.completeError(TimeoutException('Load ab timed out'));
+        return 'Timeout';
+      },
+    );
+    js.context["onLoadAbFinished"] = (String s) {
+      completer.complete(s);
+    };
+    js.context.callMethod('setByName', ['load_ab']);
+    return timeoutFuture;
   }
 
   Future<void> mainSaveGroup({required String json, dynamic hint}) {
@@ -1222,7 +1234,19 @@ class RustdeskImpl {
   }
 
   Future<String> mainLoadGroup({dynamic hint}) {
-    return Future(() => js.context.callMethod('getByName', ['load_group']));
+    Completer<String> completer = Completer();
+    Future<String> timeoutFuture = completer.future.timeout(
+      Duration(seconds: 2),
+      onTimeout: () {
+        completer.completeError(TimeoutException('Load group timed out'));
+        return 'Timeout';
+      },
+    );
+    js.context["onLoadGroupFinished"] = (String s) {
+      completer.complete(s);
+    };
+    js.context.callMethod('setByName', ['load_group']);
+    return timeoutFuture;
   }
 
   Future<void> sessionSendPointer(
