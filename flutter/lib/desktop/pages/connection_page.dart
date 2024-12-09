@@ -3,8 +3,8 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
@@ -34,7 +34,6 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   final _svcStopped = Get.find<RxBool>(tag: 'stop-service');
   final _svcIsUsingPublicServer = true.obs;
   Timer? _updateTimer;
-  final DateTime _appStartTime = DateTime.now();
 
   double get em => 14.0;
   double? get height => bind.isIncomingOnly() ? null : em * 3;
@@ -170,21 +169,19 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     final status =
         jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
     final statusNum = status['status_num'] as int;
-    final preStatus = stateGlobal.svcStatus.value;
     if (statusNum == 0) {
       stateGlobal.svcStatus.value = SvcStatus.connecting;
     } else if (statusNum == -1) {
       stateGlobal.svcStatus.value = SvcStatus.notReady;
     } else if (statusNum == 1) {
       stateGlobal.svcStatus.value = SvcStatus.ready;
-      if (preStatus != SvcStatus.ready &&
-          DateTime.now().difference(_appStartTime) > Duration(seconds: 5)) {
-        gFFI.userModel.refreshCurrentUser();
-      }
     } else {
       stateGlobal.svcStatus.value = SvcStatus.notReady;
     }
     _svcIsUsingPublicServer.value = await bind.mainIsUsingPublicServer();
+    try {
+      stateGlobal.videoConnCount.value = status['video_conn_count'] as int;
+    } catch (_) {}
   }
 }
 
@@ -209,6 +206,8 @@ class _ConnectionPageState extends State<ConnectionPage>
 
   bool isPeersLoading = false;
   bool isPeersLoaded = false;
+  // https://github.com/flutter/flutter/issues/157244
+  Iterable<Peer> _autocompleteOpts = [];
 
   @override
   void initState() {
@@ -263,8 +262,9 @@ class _ConnectionPageState extends State<ConnectionPage>
   @override
   void onWindowLeaveFullScreen() {
     // Restore edge border to default edge size.
-    stateGlobal.resizeEdgeSize.value =
-        stateGlobal.isMaximized.isTrue ? kMaximizeEdgeSize : windowEdgeSize;
+    stateGlobal.resizeEdgeSize.value = stateGlobal.isMaximized.isTrue
+        ? kMaximizeEdgeSize
+        : windowResizeEdgeSize;
   }
 
   @override
@@ -328,43 +328,14 @@ class _ConnectionPageState extends State<ConnectionPage>
       child: Ink(
         child: Column(
           children: [
-            Row(
-              children: [
-                Expanded(
-                    child: Row(
-                  children: [
-                    AutoSizeText(
-                      translate('Control Remote Desktop'),
-                      maxLines: 1,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.merge(TextStyle(height: 1)),
-                    ).marginOnly(right: 4),
-                    Tooltip(
-                      waitDuration: Duration(milliseconds: 300),
-                      message: translate("id_input_tip"),
-                      child: Icon(
-                        Icons.help_outline_outlined,
-                        size: 16,
-                        color: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.color
-                            ?.withOpacity(0.5),
-                      ),
-                    ),
-                  ],
-                )),
-              ],
-            ).marginOnly(bottom: 15),
+            getConnectionPageTitle(context, false).marginOnly(bottom: 15),
             Row(
               children: [
                 Expanded(
                     child: Autocomplete<Peer>(
                   optionsBuilder: (TextEditingValue textEditingValue) {
                     if (textEditingValue.text == '') {
-                      return const Iterable<Peer>.empty();
+                      _autocompleteOpts = const Iterable<Peer>.empty();
                     } else if (peers.isEmpty && !isPeersLoaded) {
                       Peer emptyPeer = Peer(
                         id: '',
@@ -380,7 +351,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                         rdpUsername: '',
                         loginName: '',
                       );
-                      return [emptyPeer];
+                      _autocompleteOpts = [emptyPeer];
                     } else {
                       String textWithoutSpaces =
                           textEditingValue.text.replaceAll(" ", "");
@@ -391,8 +362,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                         );
                       }
                       String textToFind = textEditingValue.text.toLowerCase();
-
-                      return peers
+                      _autocompleteOpts = peers
                           .where((peer) =>
                               peer.id.toLowerCase().contains(textToFind) ||
                               peer.username
@@ -404,6 +374,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                               peer.alias.toLowerCase().contains(textToFind))
                           .toList();
                     }
+                    return _autocompleteOpts;
                   },
                   fieldViewBuilder: (
                     BuildContext context,
@@ -464,6 +435,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                   optionsViewBuilder: (BuildContext context,
                       AutocompleteOnSelected<Peer> onSelected,
                       Iterable<Peer> options) {
+                    options = _autocompleteOpts;
                     double maxHeight = options.length * 50;
                     if (options.length == 1) {
                       maxHeight = 52;

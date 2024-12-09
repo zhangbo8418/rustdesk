@@ -38,14 +38,9 @@ pub const TURN_OFF_OTHER_ID: &'static str =
     "Failed to turn off privacy mode that belongs to someone else.";
 pub const NO_PHYSICAL_DISPLAYS: &'static str = "no_need_privacy_mode_no_physical_displays_tip";
 
-#[cfg(windows)]
-pub const PRIVACY_MODE_IMPL_WIN_MAG: &str = win_mag::PRIVACY_MODE_IMPL;
-#[cfg(windows)]
-pub const PRIVACY_MODE_IMPL_WIN_EXCLUDE_FROM_CAPTURE: &str =
-    win_exclude_from_capture::PRIVACY_MODE_IMPL;
-
-#[cfg(windows)]
-pub const PRIVACY_MODE_IMPL_WIN_VIRTUAL_DISPLAY: &str = win_virtual_display::PRIVACY_MODE_IMPL;
+pub const PRIVACY_MODE_IMPL_WIN_MAG: &str = "privacy_mode_impl_mag";
+pub const PRIVACY_MODE_IMPL_WIN_EXCLUDE_FROM_CAPTURE: &str = "privacy_mode_impl_exclude_from_capture";
+pub const PRIVACY_MODE_IMPL_WIN_VIRTUAL_DISPLAY: &str = "privacy_mode_impl_virtual_display";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "t", content = "c")]
@@ -187,6 +182,7 @@ fn get_supported_impl(impl_key: &str) -> String {
     if supported_impls.iter().any(|(k, _)| k == &impl_key) {
         return impl_key.to_owned();
     };
+    // TODO: Is it a good idea to use fallback here? Because user do not know the fallback.
     // fallback
     let mut cur_impl = get_option("privacy-mode-impl-key".to_owned());
     if !get_supported_privacy_mode_impl()
@@ -223,6 +219,8 @@ async fn turn_on_privacy_async(impl_key: String, conn_id: i32) -> Option<ResultT
         let res = turn_on_privacy_sync(&impl_key, conn_id);
         let _ = tx.send(res);
     });
+    // Wait at most 5 seconds for the result.
+    // Because it may take a long time to turn on the privacy mode with amyuni idd.
     match hbb_common::timeout(5000, rx).await {
         Ok(res) => match res {
             Ok(res) => res,

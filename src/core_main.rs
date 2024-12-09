@@ -39,6 +39,7 @@ pub fn core_main() -> Option<Vec<String>> {
     let mut _is_run_as_system = false;
     let mut _is_quick_support = false;
     let mut _is_flutter_invoke_new_connection = false;
+    let mut no_server = false;
     let mut arg_exe = Default::default();
     for arg in std::env::args() {
         if i == 0 {
@@ -62,6 +63,8 @@ pub fn core_main() -> Option<Vec<String>> {
                 _is_run_as_system = true;
             } else if arg == "--quick_support" {
                 _is_quick_support = true;
+            } else if arg == "--no-server" {
+                no_server = true;
             } else {
                 args.push(arg);
             }
@@ -134,6 +137,7 @@ pub fn core_main() -> Option<Vec<String>> {
         }
     }
     hbb_common::init_log(false, &log_name);
+    log::info!("main start args: {:?}, env: {:?}", args, std::env::args());
 
     // linux uni (url) go here.
     #[cfg(all(target_os = "linux", feature = "flutter"))]
@@ -161,9 +165,8 @@ pub fn core_main() -> Option<Vec<String>> {
     #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     init_plugins(&args);
-    log::info!("main start args:{:?}", args);
     if args.is_empty() || crate::common::is_empty_uni_link(&args[0]) {
-        std::thread::spawn(move || crate::start_server(false));
+        std::thread::spawn(move || crate::start_server(false, no_server));
     } else {
         #[cfg(windows)]
         {
@@ -261,15 +264,29 @@ pub fn core_main() -> Option<Vec<String>> {
             return None;
         } else if args[0] == "--server" {
             log::info!("start --server with user {}", crate::username());
+            #[cfg(target_os = "linux")]
+            {
+                hbb_common::allow_err!(crate::platform::check_autostart_config());
+                std::process::Command::new("pkill")
+                    .arg("-f")
+                    .arg(&format!("{} --tray", crate::get_app_name().to_lowercase()))
+                    .status()
+                    .ok();
+                hbb_common::allow_err!(crate::platform::run_as_user(
+                    vec!["--tray"],
+                    None,
+                    None::<(&str, &str)>,
+                ));
+            }
             #[cfg(windows)]
             crate::privacy_mode::restore_reg_connectivity(true);
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {
-                crate::start_server(true);
+                crate::start_server(true, false);
             }
             #[cfg(target_os = "macos")]
             {
-                let handler = std::thread::spawn(move || crate::start_server(true));
+                let handler = std::thread::spawn(move || crate::start_server(true, false));
                 crate::tray::start_tray();
                 // prevent server exit when encountering errors from tray
                 hbb_common::allow_err!(handler.join());
@@ -293,6 +310,20 @@ pub fn core_main() -> Option<Vec<String>> {
             if args.len() == 2 {
                 if crate::platform::is_installed() && is_root() {
                     if let Err(err) = crate::ipc::set_permanent_password(args[1].to_owned()) {
+                        println!("{err}");
+                    } else {
+                        println!("Done!");
+                    }
+                } else {
+                    println!("Installation and administrative privileges required!");
+                }
+            }
+            return None;
+        } else if args[0] == "--set-unlock-pin" {
+            #[cfg(feature = "flutter")]
+            if args.len() == 2 {
+                if crate::platform::is_installed() && is_root() {
+                    if let Err(err) = crate::ipc::set_unlock_pin(args[1].to_owned(), false) {
                         println!("{err}");
                     } else {
                         println!("Done!");
@@ -377,19 +408,44 @@ pub fn core_main() -> Option<Vec<String>> {
                     if pos < max {
                         strategy_name = Some(args[pos + 1].to_owned());
                     }
+                    let mut address_book_name = None;
+                    let pos = args
+                        .iter()
+                        .position(|x| x == "--address_book_name")
+                        .unwrap_or(max);
+                    if pos < max {
+                        address_book_name = Some(args[pos + 1].to_owned());
+                    }
+                    let mut address_book_tag = None;
+                    let pos = args
+                        .iter()
+                        .position(|x| x == "--address_book_tag")
+                        .unwrap_or(max);
+                    if pos < max {
+                        address_book_tag = Some(args[pos + 1].to_owned());
+                    }
                     let mut body = serde_json::json!({
                         "id": id,
                         "uuid": uuid,
                     });
                     let header = "Authorization: Bearer ".to_owned() + &token;
-                    if user_name.is_none() && strategy_name.is_none() {
-                        println!("--user_name or --strategy_name is required!");
+                    if user_name.is_none() && strategy_name.is_none() && address_book_name.is_none()
+                    {
+                        println!(
+                            "--user_name or --strategy_name or --address_book_name is required!"
+                        );
                     } else {
                         if let Some(name) = user_name {
                             body["user_name"] = serde_json::json!(name);
                         }
                         if let Some(name) = strategy_name {
                             body["strategy_name"] = serde_json::json!(name);
+                        }
+                        if let Some(name) = address_book_name {
+                            body["address_book_name"] = serde_json::json!(name);
+                            if let Some(name) = address_book_tag {
+                                body["address_book_tag"] = serde_json::json!(name);
+                            }
                         }
                         let url = crate::ui_interface::get_api_server() + "/api/devices/cli";
                         match crate::post_request_sync(url, body.to_string(), &header) {
@@ -420,8 +476,18 @@ pub fn core_main() -> Option<Vec<String>> {
             crate::ui_interface::start_option_status_sync();
         } else if args[0] == "--cm-no-ui" {
             #[cfg(feature = "flutter")]
-            #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows")))]
-            crate::flutter::connection_manager::start_cm_no_ui();
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            {
+                crate::ui_interface::start_option_status_sync();
+                crate::flutter::connection_manager::start_cm_no_ui();
+            }
+            return None;
+        } else if args[0] == "-gtk-sudo" {
+            // rustdesk service kill `rustdesk --` processes
+            #[cfg(target_os = "linux")]
+            if args.len() > 2 {
+                crate::platform::gtk_sudo::exec();
+            }
             return None;
         } else {
             #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
