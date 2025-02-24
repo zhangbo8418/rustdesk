@@ -537,6 +537,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                           setState(() {
                             selectedConnectionType = 'Connect';
                           });
+                          onConnect();
                         },
                         child: Text('Connect'),
                       ),
@@ -545,6 +546,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                           setState(() {
                             selectedConnectionType = 'Transfer file';
                           });
+                          onConnect(isFileTransfer: true);
                         },
                         child: Text('Transfer file'),
                       ),
@@ -553,6 +555,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                           setState(() {
                             selectedConnectionType = 'View camera';
                           });
+                          onConnect(isViewCamera: true);
                         },
                         child: Text('View camera'),
                       ),
