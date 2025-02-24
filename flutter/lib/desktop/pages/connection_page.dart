@@ -513,7 +513,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                         onConnect();
                       }
                     },
-                    child: Text(selectedConnectionType), // Show current selection
+                    child: Text(translate(selectedConnectionType)), // Show current selection
                   ),
                   MenuAnchor(
                     builder: (context, controller, builder) {
@@ -539,7 +539,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                           });
                           onConnect();
                         },
-                        child: Text('Connect'),
+                        child: Text(translate('Connect')),
                       ),
                       MenuItemButton(
                         onPressed: () {
@@ -548,7 +548,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                           });
                           onConnect(isFileTransfer: true);
                         },
-                        child: Text('Transfer file'),
+                        child: Text(translate('Transfer file')),
                       ),
                       MenuItemButton(
                         onPressed: () {
@@ -557,7 +557,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                           });
                           onConnect(isViewCamera: true);
                         },
-                        child: Text('View camera'),
+                        child: Text(translate('View camera')),
                       ),
                     ],
                   ),
