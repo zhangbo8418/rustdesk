@@ -478,7 +478,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       state: widget.state,
       setFullscreen: _setFullscreen,
     ));
-    toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
+    // Do not show keyboard for camera connection type.
+    if (widget.ffi.connType == ConnType.defaultConn) {
+      toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
+    }
     toolbarItems.add(_ChatMenu(id: widget.id, ffi: widget.ffi));
     if (!isWeb) {
       toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
@@ -1054,12 +1057,13 @@ class _DisplayMenuState extends State<_DisplayMenu> {
             menuChildren: getVirtualDisplayMenuChildren(ffi, id, null),
             child: Text(translate("Virtual display")),
           ),
-        cursorToggles(),
+        if (ffi.connType == ConnType.defaultConn)
+          cursorToggles(),
         Divider(),
         toggles(),
       ];
       // privacy mode
-      if (ffiModel.keyboard && pi.features.privacyMode) {
+      if (ffi.connType == ConnType.defaultConn && ffiModel.keyboard && pi.features.privacyMode) {
         final privacyModeState = PrivacyModeState.find(id);
         final privacyModeList =
             toolbarPrivacyMode(privacyModeState, context, id, ffi);
