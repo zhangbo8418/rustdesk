@@ -85,6 +85,7 @@ pub use super::lang::*;
 pub mod file_trait;
 pub mod helper;
 pub mod io_loop;
+pub mod screenshot;
 
 pub const MILLI1: Duration = Duration::from_millis(1);
 pub const SEC30: Duration = Duration::from_secs(30);
@@ -2334,7 +2335,7 @@ impl LoginConfigHandler {
             .collect::<Vec<_>>()
             .join(" ");
         #[cfg(not(target_os = "android"))]
-        let my_platform = whoami::platform().to_string();
+        let my_platform = hbb_common::whoami::platform().to_string();
         #[cfg(target_os = "android")]
         let my_platform = "Android".into();
         let hwid = if self.get_option("trust-this-device") == "Y" {
@@ -3336,6 +3337,7 @@ pub enum Data {
     CloseVoiceCall,
     ResetDecoder(Option<usize>),
     RenameFile((i32, String, String, bool)),
+    TakeScreenshot((i32, String)),
 }
 
 /// Keycode for key events.
