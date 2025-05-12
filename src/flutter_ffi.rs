@@ -492,6 +492,20 @@ pub fn session_set_custom_fps(session_id: SessionID, fps: i32) {
     }
 }
 
+pub fn session_get_trackpad_speed(session_id: SessionID) -> Option<i32> {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        Some(session.get_trackpad_speed())
+    } else {
+        None
+    }
+}
+
+pub fn session_set_trackpad_speed(session_id: SessionID, value: i32) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.save_trackpad_speed(value);
+    }
+}
+
 pub fn session_lock_screen(session_id: SessionID) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         session.lock_screen();
@@ -891,7 +905,10 @@ pub fn main_set_option(key: String, value: String) {
         );
     }
 
-    if key.eq("custom-rendezvous-server") {
+    if key.eq("custom-rendezvous-server")
+        || key.eq(config::keys::OPTION_ALLOW_WEBSOCKET)
+        || key.eq("api-server")
+    {
         set_option(key, value.clone());
         #[cfg(target_os = "android")]
         crate::rendezvous_mediator::RendezvousMediator::restart();
@@ -2533,7 +2550,10 @@ pub fn main_set_common(_key: String, _value: String) {
             );
         } else if _key == "update-me" {
             if let Some(new_version_file) = get_download_file_from_url(&_value) {
-                log::debug!("New version file is downloaed, update begin, {:?}", new_version_file.to_str());
+                log::debug!(
+                    "New version file is downloaed, update begin, {:?}",
+                    new_version_file.to_str()
+                );
                 if let Some(f) = new_version_file.to_str() {
                     // 1.4.0 does not support "--update"
                     // But we can assume that the new version supports it.
