@@ -708,11 +708,16 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Failed to check if the user is an administrator.", "Impossibile verificare se l'utente è un amministratore."),
         ("Supported only in the installed version.", "Supportato solo nella versione installata."),
         ("elevation_username_tip", "Inserisci Nome utente o dominio sorgente\\nome Utente"),
-        ("Preparing for installation ...", "Preparazione per l'installazione..."),
+        ("Preparing for installation ...", "Preparazione installazione..."),
         ("Show my cursor", "Visualizza il mio cursore"),
         ("Scale custom", "Scala personalizzata"),
         ("Custom scale slider", "Cursore scala personalizzata"),
         ("Decrease", "Diminuisci"),
         ("Increase", "Aumenta"),
+        ("Show virtual mouse", ""),
+        ("Virtual mouse size", ""),
+        ("Small", ""),
+        ("Large", ""),
+        ("Show virtual joystick", ""),
     ].iter().cloned().collect();
 }
