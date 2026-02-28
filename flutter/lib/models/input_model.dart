@@ -365,6 +365,16 @@ class InputModel {
   final isPhysicalMouse = false.obs;
   int _lastButtons = 0;
   Offset lastMousePos = Offset.zero;
+  int _lastWheelTsUs = 0;
+
+  // Wheel acceleration thresholds.
+  static const int _wheelAccelFastThresholdUs = 40000; // 40ms
+  static const int _wheelAccelMediumThresholdUs = 80000; // 80ms
+  static const double _wheelBurstVelocityThreshold =
+      0.002; // delta units per microsecond
+  // Wheel burst acceleration (empirical tuning).
+  // Applies only to fast, non-smooth bursts to preserve single-step scrolling.
+  // Flutter uses microseconds for dt, so velocity is in delta/us.
 
   // Relative mouse mode (for games/3D apps).
   final relativeMouseMode = false.obs;
@@ -964,6 +974,7 @@ class InputModel {
     toReleaseRawKeys.release(handleRawKeyEvent);
     _pointerMovedAfterEnter = false;
     _pointerInsideImage = enter;
+    _lastWheelTsUs = 0;
 
     // Fix status
     if (!enter) {
@@ -1407,17 +1418,44 @@ class InputModel {
     if (isViewOnly) return;
     if (isViewCamera) return;
     if (e is PointerScrollEvent) {
-      var dx = e.scrollDelta.dx.toInt();
-      var dy = e.scrollDelta.dy.toInt();
+      final rawDx = e.scrollDelta.dx;
+      final rawDy = e.scrollDelta.dy;
+      final dominantDelta = rawDx.abs() > rawDy.abs() ? rawDx.abs() : rawDy.abs();
+      final isSmooth = dominantDelta < 1;
+      final nowUs = DateTime.now().microsecondsSinceEpoch;
+      final dtUs = _lastWheelTsUs == 0 ? 0 : nowUs - _lastWheelTsUs;
+      _lastWheelTsUs = nowUs;
+      int accel = 1;
+      if (!isSmooth &&
+          dtUs > 0 &&
+          dtUs <= _wheelAccelMediumThresholdUs &&
+          (isWindows || isLinux) &&
+          peerPlatform == kPeerPlatformMacOS) {
+        final velocity = dominantDelta / dtUs;
+        if (velocity >= _wheelBurstVelocityThreshold) {
+          if (dtUs < _wheelAccelFastThresholdUs) {
+            accel = 3;
+          } else {
+            accel = 2;
+          }
+        }
+      }
+      var dx = rawDx.toInt();
+      var dy = rawDy.toInt();
+      if (rawDx.abs() > rawDy.abs()) {
+        dy = 0;
+      } else {
+        dx = 0;
+      }
       if (dx > 0) {
-        dx = -1;
+        dx = -accel;
       } else if (dx < 0) {
-        dx = 1;
+        dx = accel;
       }
       if (dy > 0) {
-        dy = -1;
+        dy = -accel;
       } else if (dy < 0) {
-        dy = 1;
+        dy = accel;
       }
       bind.sessionSendMouse(
           sessionId: sessionId,
