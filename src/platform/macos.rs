@@ -42,9 +42,16 @@ static PRIVILEGES_SCRIPTS_DIR: Dir =
     include_dir!("$CARGO_MANIFEST_DIR/src/platform/privileges_scripts");
 static mut LATEST_SEED: i32 = 0;
 
-// Using a fixed temporary directory for updates is preferable to
-// using one that includes the custom client name.
-const UPDATE_TEMP_DIR: &str = "/tmp/.rustdeskupdate";
+#[inline]
+fn get_update_temp_dir() -> PathBuf {
+    let euid = unsafe { hbb_common::libc::geteuid() };
+    Path::new("/tmp").join(format!(".rustdeskupdate-{}", euid))
+}
+
+#[inline]
+fn get_update_temp_dir_string() -> String {
+    get_update_temp_dir().to_string_lossy().into_owned()
+}
 
 /// Global mutex to serialize CoreGraphics cursor operations.
 /// This prevents race conditions between cursor visibility (hide depth tracking)
@@ -285,21 +292,6 @@ fn update_daemon_agent(agent_plist_file: String, update_source_dir: String, sync
             _ => {
                 let installed = std::path::Path::new(&agent_plist_file).exists();
                 log::info!("Agent file {} installed: {}", &agent_plist_file, installed);
-                if installed {
-                    // Unload first, or load may not work if already loaded.
-                    // We hope that the load operation can immediately trigger a start.
-                    std::process::Command::new("launchctl")
-                        .args(&["unload", "-w", &agent_plist_file])
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .ok();
-                    let status = std::process::Command::new("launchctl")
-                        .args(&["load", "-w", &agent_plist_file])
-                        .status();
-                    log::info!("launch server, status: {:?}", &status);
-                }
             }
         }
     };
@@ -418,7 +410,9 @@ pub fn set_cursor_pos(x: i32, y: i32) -> bool {
     let _guard = match CG_CURSOR_MUTEX.try_lock() {
         Ok(guard) => guard,
         Err(std::sync::TryLockError::WouldBlock) => {
-            log::error!("[BUG] set_cursor_pos: CG_CURSOR_MUTEX is already held - potential deadlock!");
+            log::error!(
+                "[BUG] set_cursor_pos: CG_CURSOR_MUTEX is already held - potential deadlock!"
+            );
             debug_assert!(false, "Re-entrant call to set_cursor_pos detected");
             return false;
         }
@@ -825,7 +819,8 @@ pub fn quit_gui() {
 
 #[inline]
 pub fn try_remove_temp_update_dir(dir: Option<&str>) {
-    let target_path = Path::new(dir.unwrap_or(UPDATE_TEMP_DIR));
+    let target_path_buf = dir.map(PathBuf::from).unwrap_or_else(get_update_temp_dir);
+    let target_path = target_path_buf.as_path();
     if target_path.exists() {
         std::fs::remove_dir_all(target_path).ok();
     }
@@ -901,25 +896,28 @@ end run
 }
 
 pub fn update_from_dmg(dmg_path: &str) -> ResultType<()> {
+    let update_temp_dir = get_update_temp_dir_string();
     println!("Starting update from DMG: {}", dmg_path);
-    extract_dmg(dmg_path, UPDATE_TEMP_DIR)?;
+    extract_dmg(dmg_path, &update_temp_dir)?;
     println!("DMG extracted");
-    update_extracted(UPDATE_TEMP_DIR)?;
+    update_extracted(&update_temp_dir)?;
     println!("Update process started");
     Ok(())
 }
 
 pub fn update_to(_file: &str) -> ResultType<()> {
-    update_extracted(UPDATE_TEMP_DIR)?;
+    let update_temp_dir = get_update_temp_dir_string();
+    update_extracted(&update_temp_dir)?;
     Ok(())
 }
 
 pub fn extract_update_dmg(file: &str) {
+    let update_temp_dir = get_update_temp_dir_string();
     let mut evt: HashMap<&str, String> =
         HashMap::from([("name", "extract-update-dmg".to_string())]);
-    match extract_dmg(file, UPDATE_TEMP_DIR) {
+    match extract_dmg(file, &update_temp_dir) {
         Ok(_) => {
-            log::info!("Extracted dmg file to {}", UPDATE_TEMP_DIR);
+            log::info!("Extracted dmg file to {}", update_temp_dir);
         }
         Err(e) => {
             evt.insert("err", e.to_string());
