@@ -744,7 +744,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("password-hidden-tip", "永久密码已设置（已隐藏）"),
         ("preset-password-in-use-tip", "当前使用预设密码"),
         ("Enable privacy mode", "允许隐私模式"),
-        ("allow-remote-toolbar-docking-any-edge", ""),
+        ("allow-remote-toolbar-docking-any-edge", "允许远程工具栏停靠至任意边缘"),
         ("API Token", "API 令牌"),
         ("Deploy", "部署"),
         ("Custom ID (optional)", "自定义 ID（可选）"),
