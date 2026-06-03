@@ -11,21 +11,8 @@ final _isExtracting = false.obs;
 
 void handleUpdate(String updateUrl) {
   _isExtracting.value = false;
-  String downloadUrl;
-  if (updateUrl.contains('/RustDeskClients/') && !updateUrl.endsWith('.json')) {
-    downloadUrl = updateUrl;
-  } else {
-    downloadUrl = updateUrl.replaceAll('tag', 'download');
-    final version = downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1);
-    final String downloadFile =
-        bind.mainGetCommonSync(key: 'download-file-$version');
-    if (downloadFile.startsWith('error:')) {
-      final error = downloadFile.replaceFirst('error:', '');
-      msgBox(gFFI.sessionId, 'custom-nocancel-nook-hasclose', 'Error', error,
-          updateUrl, gFFI.dialogManager);
-      return;
-    }
-    downloadUrl = '$downloadUrl/$downloadFile';
+  if (updateUrl.isEmpty) {
+    return;
   }
 
   SimpleWrapper downloadId = SimpleWrapper('');
@@ -36,10 +23,9 @@ void handleUpdate(String updateUrl) {
         title: Obx(() => Text(translate(_isExtracting.isTrue
             ? 'Preparing for installation ...'
             : 'Downloading {$appName}'))),
-        content:
-            UpdateProgress(updateUrl, downloadUrl, downloadId, onCanceled)
-                .marginSymmetric(horizontal: 8)
-                .paddingOnly(top: 12),
+        content: UpdateProgress(updateUrl, downloadId, onCanceled)
+            .marginSymmetric(horizontal: 8)
+            .paddingOnly(top: 12),
         actions: [
           if (_isExtracting.isFalse) dialogButton(translate('Cancel'), onPressed: () async {
             onCanceled.value();
@@ -62,13 +48,10 @@ void handleUpdate(String updateUrl) {
 }
 
 class UpdateProgress extends StatefulWidget {
-  final String releasePageUrl;
-  final String downloadUrl;
+  final String updateUrl;
   final SimpleWrapper downloadId;
   final SimpleWrapper onCanceled;
-  UpdateProgress(
-      this.releasePageUrl, this.downloadUrl, this.downloadId, this.onCanceled,
-      {Key? key})
+  UpdateProgress(this.updateUrl, this.downloadId, this.onCanceled, {Key? key})
       : super(key: key);
 
   @override
@@ -92,7 +75,7 @@ class UpdateProgressState extends State<UpdateProgress> {
     platformFFI.registerEventHandler(_eventKeyDownloadNewVersion,
         _eventKeyDownloadNewVersion, handleDownloadNewVersion,
         replace: true);
-    bind.mainSetCommon(key: 'download-new-version', value: widget.downloadUrl);
+    bind.mainSetCommon(key: 'download-new-version', value: widget.updateUrl);
     if (isMacOS) {
       platformFFI.registerEventHandler(_eventKeyExtractUpdateDmg,
           _eventKeyExtractUpdateDmg, handleExtractUpdateDmg,
@@ -150,13 +133,13 @@ class UpdateProgressState extends State<UpdateProgress> {
     }
 
     jumplink() {
-      launchUrl(Uri.parse(widget.releasePageUrl));
+      launchUrl(Uri.parse(widget.updateUrl));
       dialogManager.dismissAll();
     }
 
     retry() {
       dialogManager.dismissAll();
-      handleUpdate(widget.releasePageUrl);
+      handleUpdate(widget.updateUrl);
     }
 
     final List<Widget> buttons = [
@@ -200,7 +183,7 @@ class UpdateProgressState extends State<UpdateProgress> {
       } catch (e) {
         _getDataFailedCount += 1;
         debugPrint(
-            'Failed to get download data ${widget.downloadUrl}, error $e');
+            'Failed to get download data ${widget.updateUrl}, error $e');
         if (_getDataFailedCount > 3) {
           err = e.toString();
         }
@@ -219,7 +202,7 @@ class UpdateProgressState extends State<UpdateProgress> {
           setState(() {});
           if (isMacOS) {
             bind.mainSetCommon(
-                key: 'extract-update-dmg', value: widget.downloadUrl);
+                key: 'extract-update-dmg', value: widget.updateUrl);
             _isExtracting.value = true;
           } else {
             updateMsgBox();
@@ -241,7 +224,7 @@ class UpdateProgressState extends State<UpdateProgress> {
       gFFI.dialogManager,
       onSubmit: () {
         debugPrint('Downloaded, update to new version now');
-        bind.mainSetCommon(key: 'update-me', value: widget.downloadUrl);
+        bind.mainSetCommon(key: 'update-me', value: widget.updateUrl);
       },
       submitTimeout: 5,
     );

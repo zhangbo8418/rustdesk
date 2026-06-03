@@ -1044,7 +1044,7 @@ fn linux_software_update_filename(version: &str) -> hbb_common::ResultType<Strin
     }
 }
 
-pub fn software_update_download_filename(version: &str) -> hbb_common::ResultType<String> {
+fn software_update_download_filename(version: &str) -> hbb_common::ResultType<String> {
     #[cfg(target_os = "windows")]
     {
         match std::env::consts::ARCH {
@@ -1119,12 +1119,58 @@ fn software_update_url_with_redirect(url: &str, redirect: &str) -> String {
 }
 
 fn parse_version_check_response(resp: &hbb_common::VersionCheckResponse) -> hbb_common::ResultType<String> {
-    if !resp.version.is_empty() {
-        Ok(resp.version.clone())
-    } else if !resp.url.is_empty() {
-        Ok(resp.url.rsplit('/').next().unwrap_or_default().to_string())
+    if resp.version.is_empty() {
+        bail!("invalid software update response: missing version");
+    }
+    Ok(resp.version.clone())
+}
+
+async fn fetch_software_update_version() -> hbb_common::ResultType<String> {
+    let mut last_err = None;
+    for redirect in SOFTWARE_UPDATE_REDIRECTS {
+        let url = software_update_check_url(redirect);
+        match http_get_async(&url).await {
+            Ok(bytes) => match serde_json::from_slice::<hbb_common::VersionCheckResponse>(&bytes) {
+                Ok(resp) => match parse_version_check_response(&resp) {
+                    Ok(version) => return Ok(version),
+                    Err(e) => {
+                        log::debug!(
+                            "software update json invalid (redirect={}): {}",
+                            redirect,
+                            e
+                        );
+                        last_err = Some(e);
+                    }
+                },
+                Err(e) => {
+                    log::debug!(
+                        "software update json parse failed (redirect={}): {}",
+                        redirect,
+                        e
+                    );
+                    last_err = Some(e.into());
+                }
+            },
+            Err(e) => {
+                log::debug!("software update json fetch failed (redirect={}): {}", redirect, e);
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("software update check failed")))
+}
+
+fn build_software_update_download_url(version: &str) -> hbb_common::ResultType<String> {
+    software_update_download_url(version, SOFTWARE_UPDATE_REDIRECTS[0])
+}
+
+pub fn alternate_software_update_download_url(url: &str) -> Option<String> {
+    if url.contains("redirect=y") {
+        Some(software_update_url_with_redirect(url, "n"))
+    } else if url.contains("redirect=n") {
+        Some(software_update_url_with_redirect(url, "y"))
     } else {
-        bail!("invalid software update response: missing version")
+        None
     }
 }
 
@@ -1158,62 +1204,6 @@ async fn http_get_async(url: &str) -> hbb_common::ResultType<Bytes> {
     Ok(response.bytes().await?)
 }
 
-async fn fetch_software_update_json() -> hbb_common::ResultType<(hbb_common::VersionCheckResponse, String)> {
-    let mut last_err = None;
-    for redirect in SOFTWARE_UPDATE_REDIRECTS {
-        let url = software_update_check_url(redirect);
-        match http_get_async(&url).await {
-            Ok(bytes) => match serde_json::from_slice::<hbb_common::VersionCheckResponse>(&bytes) {
-                Ok(resp) => match parse_version_check_response(&resp) {
-                    Ok(_) => return Ok((resp, redirect.to_string())),
-                    Err(e) => {
-                        log::debug!(
-                            "software update json invalid (redirect={}): {}",
-                            redirect,
-                            e
-                        );
-                        last_err = Some(e);
-                    }
-                },
-                Err(e) => {
-                    log::debug!(
-                        "software update json parse failed (redirect={}): {}",
-                        redirect,
-                        e
-                    );
-                    last_err = Some(e.into());
-                }
-            },
-            Err(e) => {
-                log::debug!("software update json fetch failed (redirect={}): {}", redirect, e);
-                last_err = Some(e);
-            }
-        }
-    }
-    Err(last_err.unwrap_or_else(|| anyhow!("software update check failed")))
-}
-
-pub fn resolve_software_update_download_url(version: &str) -> hbb_common::ResultType<String> {
-    software_update_download_url(version, SOFTWARE_UPDATE_REDIRECTS[0])
-}
-
-pub fn alternate_software_update_download_url(url: &str, _version: &str) -> Option<String> {
-    if url.contains("redirect=y") {
-        Some(software_update_url_with_redirect(url, "n"))
-    } else if url.contains("redirect=n") {
-        Some(software_update_url_with_redirect(url, "y"))
-    } else {
-        None
-    }
-}
-
-pub fn resolve_software_update_download_url_with_fallback(
-    preferred_url: &str,
-    _version: &str,
-) -> hbb_common::ResultType<String> {
-    Ok(preferred_url.to_string())
-}
-
 pub fn get_software_update_version() -> String {
     SOFTWARE_UPDATE_VERSION.lock().unwrap().clone()
 }
@@ -1239,11 +1229,10 @@ pub fn check_software_update() {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
-    let (resp, _) = fetch_software_update_json().await?;
-    let latest_release_version = parse_version_check_response(&resp)?;
+    let latest_release_version = fetch_software_update_version().await?;
 
     if get_version_number(&latest_release_version) > get_version_number(crate::VERSION) {
-        let download_url = resolve_software_update_download_url(&latest_release_version)?;
+        let download_url = build_software_update_download_url(&latest_release_version)?;
         #[cfg(feature = "flutter")]
         {
             let mut m = HashMap::new();

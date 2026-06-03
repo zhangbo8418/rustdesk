@@ -133,8 +133,6 @@ fn check_update(manually: bool) -> ResultType<()> {
         log::debug!("No update available.");
     } else {
         let version = crate::common::get_software_update_version();
-        let download_url =
-            crate::common::resolve_software_update_download_url_with_fallback(&download_url, &version)?;
         log::debug!("New version available: {}", &version);
         let client = create_http_client_with_url(&download_url);
         let Some(file_path) = get_download_file_from_url(&download_url) else {
@@ -173,10 +171,9 @@ fn check_update(manually: bool) -> ResultType<()> {
                 }
             };
             let response = try_download(&download_url).or_else(|first_err| {
-                if let Some(alt) = crate::common::alternate_software_update_download_url(
-                    &download_url,
-                    &version,
-                ) {
+                if let Some(alt) =
+                    crate::common::alternate_software_update_download_url(&download_url)
+                {
                     if alt != download_url {
                         log::debug!(
                             "Retry software update download with alternate url: {}",

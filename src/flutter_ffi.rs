@@ -2843,15 +2843,6 @@ pub fn main_get_common(key: String) -> String {
                     format!("error:{}", e)
                 }
             }
-        } else if key.starts_with("download-file-") {
-            let version = key.replace("download-file-", "");
-            match crate::common::software_update_download_filename(&version) {
-                Ok(name) => name,
-                Err(e) => {
-                    log::error!("Failed to get software update filename: {}", e);
-                    format!("error:{}", e)
-                }
-            }
         } else {
             "".to_owned()
         }
@@ -2899,12 +2890,7 @@ pub fn main_set_common(_key: String, _value: String) {
     {
         use crate::updater::get_download_file_from_url;
         if _key == "download-new-version" {
-            let version = crate::common::get_software_update_version();
-            let download_url = crate::common::resolve_software_update_download_url_with_fallback(
-                &_value,
-                &version,
-            )
-            .unwrap_or_else(|_| _value.clone());
+            let download_url = _value.clone();
             let event_key = "download-new-version".to_owned();
             let data = if let Some(download_file) = get_download_file_from_url(&download_url) {
                 std::fs::remove_file(&download_file).ok();
