@@ -2904,7 +2904,7 @@ pub fn main_set_common(_key: String, _value: String) {
                 &_value,
                 &version,
             )
-            .unwrap_or(_value);
+            .unwrap_or_else(|_| _value.clone());
             let event_key = "download-new-version".to_owned();
             let data = if let Some(download_file) = get_download_file_from_url(&download_url) {
                 std::fs::remove_file(&download_file).ok();
