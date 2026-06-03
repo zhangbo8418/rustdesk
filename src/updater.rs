@@ -128,23 +128,13 @@ fn check_update(manually: bool) -> ResultType<()> {
         return Ok(());
     }
 
-    let update_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
-    if update_url.is_empty() {
+    let download_url = crate::common::SOFTWARE_UPDATE_URL.lock().unwrap().clone();
+    if download_url.is_empty() {
         log::debug!("No update available.");
     } else {
-        let download_url = update_url.replace("tag", "download");
-        let version = download_url.split('/').last().unwrap_or_default();
-        #[cfg(target_os = "windows")]
-        let download_url = if cfg!(feature = "flutter") {
-            format!(
-                "{}/rustdesk-{}-x86_64.{}",
-                download_url,
-                version,
-                if update_msi { "msi" } else { "exe" }
-            )
-        } else {
-            format!("{}/rustdesk-{}-x86-sciter.exe", download_url, version)
-        };
+        let version = crate::common::get_software_update_version();
+        let download_url =
+            crate::common::resolve_software_update_download_url_with_fallback(&download_url, &version)?;
         log::debug!("New version available: {}", &version);
         let client = create_http_client_with_url(&download_url);
         let Some(file_path) = get_download_file_from_url(&download_url) else {
@@ -174,13 +164,29 @@ fn check_update(manually: bool) -> ResultType<()> {
             }
         }
         if !is_file_exists {
-            let response = client.get(&download_url).send()?;
-            if !response.status().is_success() {
-                bail!(
-                    "Failed to download the new version file: {}",
-                    response.status()
-                );
-            }
+            let try_download = |url: &str| -> ResultType<reqwest::blocking::Response> {
+                let resp = client.get(url).send()?;
+                if resp.status().is_success() {
+                    Ok(resp)
+                } else {
+                    bail!("http status: {}", resp.status())
+                }
+            };
+            let response = try_download(&download_url).or_else(|first_err| {
+                if let Some(alt) = crate::common::alternate_software_update_download_url(
+                    &download_url,
+                    &version,
+                ) {
+                    if alt != download_url {
+                        log::debug!(
+                            "Retry software update download with alternate url: {}",
+                            alt
+                        );
+                        return try_download(&alt);
+                    }
+                }
+                Err(first_err)
+            })?;
             let file_data = response.bytes()?;
             let mut file = std::fs::File::create(&file_path)?;
             file.write_all(&file_data)?;
@@ -286,5 +292,6 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
 
 pub fn get_download_file_from_url(url: &str) -> Option<PathBuf> {
     let filename = url.split('/').last()?;
+    let filename = filename.split('?').next().unwrap_or(filename);
     Some(std::env::temp_dir().join(filename))
 }

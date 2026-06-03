@@ -748,6 +748,10 @@ pub fn current_is_wayland() -> bool {
 
 #[inline]
 pub fn get_new_version() -> String {
+    let version = crate::common::get_software_update_version();
+    if !version.is_empty() {
+        return version;
+    }
     (*SOFTWARE_UPDATE_URL
         .lock()
         .unwrap()

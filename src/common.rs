@@ -92,8 +92,12 @@ pub mod input {
     pub const MOUSE_BUTTON_FORWARD: i32 = 0x10;
 }
 
+const SOFTWARE_UPDATE_BASE: &str = "https://spk.bobohome.store:8880/download/RustDeskClients";
+const SOFTWARE_UPDATE_REDIRECTS: [&str; 2] = ["y", "n"];
+
 lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
+    pub static ref SOFTWARE_UPDATE_VERSION: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_NAME: Arc<Mutex<String>> = Default::default();
     static ref PUBLIC_IPV6_ADDR: Arc<Mutex<(Option<SocketAddr>, Option<Instant>)>> = Default::default();
@@ -939,29 +943,199 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
     }
 }
 
-pub fn check_software_update() {
-    if is_custom_client() {
-        return;
-    }
-    let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
-    if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
-        std::thread::spawn(move || allow_err!(do_check_software_update()));
+fn software_update_check_url(redirect: &str) -> String {
+    format!(
+        "{}/update.json?redirect={}",
+        SOFTWARE_UPDATE_BASE, redirect
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn linux_software_update_arch() -> hbb_common::ResultType<&'static str> {
+    match std::env::consts::ARCH {
+        "x86_64" => Ok("x86_64"),
+        "aarch64" => Ok("aarch64"),
+        "arm" | "armv7" => Ok("armhf"),
+        "x86" => Ok("i686"),
+        arch => bail!("unsupported linux arch for software update: {}", arch),
     }
 }
 
-// No need to check `danger_accept_invalid_cert` for now.
-// Because the url is always `https://api.rustdesk.com/version/latest`.
-#[tokio::main(flavor = "current_thread")]
-pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
-    let (request, url) =
-        hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string());
+#[cfg(target_os = "linux")]
+fn linux_os_release_field(key: &str) -> Option<String> {
+    let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    let prefix = format!("{key}=");
+    for line in content.lines() {
+        if let Some(value) = line.strip_prefix(&prefix) {
+            return Some(value.trim_matches('"').to_lowercase());
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_rpm_installed() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let exe = exe.canonicalize().unwrap_or(exe);
+    match std::process::Command::new("rpm").arg("-qf").arg(&exe).output() {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_deb_installed() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let exe = exe.canonicalize().unwrap_or(exe);
+    match std::process::Command::new("dpkg")
+        .arg("-S")
+        .arg(&exe)
+        .output()
+    {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_deb_download_filename(version: &str) -> hbb_common::ResultType<String> {
+    let arch = linux_software_update_arch()?;
+    Ok(format!("rustdesk-{}-{}.deb", version, arch))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_rpm_download_filename(version: &str) -> hbb_common::ResultType<String> {
+    let id = linux_os_release_field("ID").unwrap_or_default();
+    let id_like = linux_os_release_field("ID_LIKE").unwrap_or_default();
+    let distro = format!("{id} {id_like}");
+    if distro.contains("suse") || distro.contains("opensuse") {
+        Ok(format!("rustdesk-{}-suse.rpm", version))
+    } else if distro.contains("fedora")
+        || distro.contains("rhel")
+        || distro.contains("centos")
+        || distro.contains("rocky")
+        || distro.contains("alma")
+    {
+        Ok(format!("rustdesk-{}-fedora28-centos8.rpm", version))
+    } else {
+        let arch = linux_software_update_arch()?;
+        Ok(format!("rustdesk-{}-0.{}.rpm", version, arch))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_software_update_filename(version: &str) -> hbb_common::ResultType<String> {
+    if std::path::Path::new("/.flatpak-info").exists() {
+        let arch = linux_software_update_arch()?;
+        Ok(format!("rustdesk-{}-{}.flatpak", version, arch))
+    } else if std::env::var("APPIMAGE").is_ok() {
+        let arch = linux_software_update_arch()?;
+        Ok(format!("rustdesk-{}-{}.AppImage", version, arch))
+    } else if is_linux_rpm_installed() {
+        linux_rpm_download_filename(version)
+    } else if is_linux_deb_installed() {
+        linux_deb_download_filename(version)
+    } else {
+        bail!("unknown linux install type for software update");
+    }
+}
+
+pub fn software_update_download_filename(version: &str) -> hbb_common::ResultType<String> {
+    #[cfg(target_os = "windows")]
+    {
+        match std::env::consts::ARCH {
+            "x86_64" => {
+                let msi = crate::platform::is_msi_installed()? && !is_custom_client();
+                Ok(format!(
+                    "rustdesk-{}-x86_64.{}",
+                    version,
+                    if msi { "msi" } else { "exe" }
+                ))
+            }
+            "x86" => Ok(format!("rustdesk-{}-x86-sciter.exe", version)),
+            arch => bail!("unsupported windows arch for software update: {}", arch),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Ok(if cfg!(target_arch = "aarch64") {
+            format!("rustdesk-{}-aarch64.dmg", version)
+        } else {
+            format!("rustdesk-{}-x86_64.dmg", version)
+        })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux_software_update_filename(version)
+    }
+    #[cfg(target_os = "android")]
+    {
+        match std::env::consts::ARCH {
+            "aarch64" => Ok(format!("rustdesk-{}-aarch64-signed.apk", version)),
+            "arm" => Ok(format!("rustdesk-{}-armv7-signed.apk", version)),
+            arch => bail!("unsupported android arch for software update: {}", arch),
+        }
+    }
+    #[cfg(target_os = "ios")]
+    {
+        bail!("ios software update download is not supported");
+    }
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android",
+        target_os = "ios"
+    )))]
+    {
+        bail!("unsupported platform for software update download");
+    }
+}
+
+fn software_update_download_url(version: &str, redirect: &str) -> hbb_common::ResultType<String> {
+    let filename = software_update_download_filename(version)?;
+    Ok(format!(
+        "{}/{}/{}?redirect={}",
+        SOFTWARE_UPDATE_BASE, version, filename, redirect
+    ))
+}
+
+fn software_update_url_with_redirect(url: &str, redirect: &str) -> String {
+    if let Some(idx) = url.find("redirect=") {
+        let end = url[idx..]
+            .find('&')
+            .map(|i| idx + i)
+            .unwrap_or(url.len());
+        format!("{}{}{}", &url[..idx], format!("redirect={}", redirect), &url[end..])
+    } else if url.contains('?') {
+        format!("{}&redirect={}", url, redirect)
+    } else {
+        format!("{}?redirect={}", url, redirect)
+    }
+}
+
+fn parse_version_check_response(resp: &hbb_common::VersionCheckResponse) -> hbb_common::ResultType<String> {
+    if !resp.version.is_empty() {
+        Ok(resp.version.clone())
+    } else if !resp.url.is_empty() {
+        Ok(resp.url.rsplit('/').next().unwrap_or_default().to_string())
+    } else {
+        bail!("invalid software update response: missing version")
+    }
+}
+
+async fn http_get_async(url: &str) -> hbb_common::ResultType<Bytes> {
     let proxy_conf = Config::get_socks();
-    let tls_url = get_url_for_tls(&url, &proxy_conf);
+    let tls_url = get_url_for_tls(url, &proxy_conf);
     let tls_type = get_cached_tls_type(tls_url);
     let is_tls_not_cached = tls_type.is_none();
     let tls_type = tls_type.unwrap_or(TlsType::Rustls);
     let client = create_http_client_async(tls_type, false);
-    let latest_release_response = match client.post(&url).json(&request).send().await {
+    let response = match client.get(url).send().await {
         Ok(resp) => {
             upsert_tls_cache(tls_url, tls_type, false);
             resp
@@ -970,7 +1144,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             if is_tls_not_cached && err.is_request() {
                 let tls_type = TlsType::NativeTls;
                 let client = create_http_client_async(tls_type, false);
-                let resp = client.post(&url).json(&request).send().await?;
+                let resp = client.get(url).send().await?;
                 upsert_tls_cache(tls_url, tls_type, false);
                 resp
             } else {
@@ -978,24 +1152,111 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
             }
         }
     };
-    let bytes = latest_release_response.bytes().await?;
-    let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
-    let response_url = resp.url;
-    let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
+    if !response.status().is_success() {
+        bail!("http status: {}", response.status());
+    }
+    Ok(response.bytes().await?)
+}
+
+async fn fetch_software_update_json() -> hbb_common::ResultType<(hbb_common::VersionCheckResponse, String)> {
+    let mut last_err = None;
+    for redirect in SOFTWARE_UPDATE_REDIRECTS {
+        let url = software_update_check_url(redirect);
+        match http_get_async(&url).await {
+            Ok(bytes) => match serde_json::from_slice::<hbb_common::VersionCheckResponse>(&bytes) {
+                Ok(resp) => match parse_version_check_response(&resp) {
+                    Ok(_) => return Ok((resp, redirect.to_string())),
+                    Err(e) => {
+                        log::debug!(
+                            "software update json invalid (redirect={}): {}",
+                            redirect,
+                            e
+                        );
+                        last_err = Some(e);
+                    }
+                },
+                Err(e) => {
+                    log::debug!(
+                        "software update json parse failed (redirect={}): {}",
+                        redirect,
+                        e
+                    );
+                    last_err = Some(e.into());
+                }
+            },
+            Err(e) => {
+                log::debug!("software update json fetch failed (redirect={}): {}", redirect, e);
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("software update check failed")))
+}
+
+pub fn resolve_software_update_download_url(version: &str) -> hbb_common::ResultType<String> {
+    software_update_download_url(version, SOFTWARE_UPDATE_REDIRECTS[0])
+}
+
+pub fn alternate_software_update_download_url(url: &str, _version: &str) -> Option<String> {
+    if url.contains("redirect=y") {
+        Some(software_update_url_with_redirect(url, "n"))
+    } else if url.contains("redirect=n") {
+        Some(software_update_url_with_redirect(url, "y"))
+    } else {
+        None
+    }
+}
+
+pub fn resolve_software_update_download_url_with_fallback(
+    preferred_url: &str,
+    _version: &str,
+) -> hbb_common::ResultType<String> {
+    Ok(preferred_url.to_string())
+}
+
+pub fn get_software_update_version() -> String {
+    SOFTWARE_UPDATE_VERSION.lock().unwrap().clone()
+}
+
+fn clear_software_update_info() {
+    *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+    *SOFTWARE_UPDATE_VERSION.lock().unwrap() = "".to_string();
+}
+
+pub fn check_software_update() {
+    if is_custom_client() {
+        return;
+    }
+    #[cfg(target_os = "ios")]
+    {
+        return;
+    }
+    let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
+    if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
+        std::thread::spawn(move || allow_err!(do_check_software_update()));
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
+    let (resp, _) = fetch_software_update_json().await?;
+    let latest_release_version = parse_version_check_response(&resp)?;
 
     if get_version_number(&latest_release_version) > get_version_number(crate::VERSION) {
+        let download_url = resolve_software_update_download_url(&latest_release_version)?;
         #[cfg(feature = "flutter")]
         {
             let mut m = HashMap::new();
             m.insert("name", "check_software_update_finish");
-            m.insert("url", &response_url);
+            m.insert("url", download_url.as_str());
             if let Ok(data) = serde_json::to_string(&m) {
                 let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
             }
         }
-        *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
+        *SOFTWARE_UPDATE_VERSION.lock().unwrap() = latest_release_version;
+        *SOFTWARE_UPDATE_URL.lock().unwrap() = download_url;
     } else {
-        *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
+        clear_software_update_info();
     }
     Ok(())
 }

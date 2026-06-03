@@ -437,14 +437,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
       String btnText = isToUpdate ? 'Update' : 'Download';
       GestureTapCallback onPressed = () async {
-        final Uri url = Uri.parse('https://rustdesk.com/download');
-        await launchUrl(url);
-      };
-      if (isToUpdate) {
-        onPressed = () {
+        if (updateUrl.isEmpty) {
+          return;
+        }
+        if (isToUpdate) {
           handleUpdate(updateUrl);
-        };
-      }
+        } else {
+          await launchUrl(Uri.parse(updateUrl),
+              mode: LaunchMode.externalApplication);
+        }
+      };
       return buildInstallCard(
           "Status",
           "${translate("new-version-of-{${bind.mainGetAppNameSync()}}-tip")} (${bind.mainGetNewVersion()}).",
@@ -453,7 +455,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           closeButton: true,
           help: isToUpdate ? 'Changelog' : null,
           link: isToUpdate
-              ? 'https://github.com/rustdesk/rustdesk/releases/tag/${bind.mainGetNewVersion()}'
+              ? 'https://spk.bobohome.store:8880/download/RustDeskClients/${bind.mainGetNewVersion()}'
               : null);
     }
     if (systemError.isNotEmpty) {

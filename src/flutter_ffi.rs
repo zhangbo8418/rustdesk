@@ -2844,32 +2844,13 @@ pub fn main_get_common(key: String) -> String {
                 }
             }
         } else if key.starts_with("download-file-") {
-            let _version = key.replace("download-file-", "");
-            #[cfg(target_os = "windows")]
-            return match (
-                crate::platform::windows::is_msi_installed(),
-                crate::common::is_custom_client(),
-            ) {
-                (Ok(true), false) => format!("rustdesk-{_version}-x86_64.msi"),
-                (Ok(true), true) | (Ok(false), _) => format!("rustdesk-{_version}-x86_64.exe"),
-                (Err(e), _) => {
-                    log::error!("Failed to check if is msi: {}", e);
-                    format!("error:update-failed-check-msi-tip")
+            let version = key.replace("download-file-", "");
+            match crate::common::software_update_download_filename(&version) {
+                Ok(name) => name,
+                Err(e) => {
+                    log::error!("Failed to get software update filename: {}", e);
+                    format!("error:{}", e)
                 }
-            };
-            #[cfg(target_os = "macos")]
-            {
-                return if cfg!(target_arch = "x86_64") {
-                    format!("rustdesk-{_version}-x86_64.dmg")
-                } else if cfg!(target_arch = "aarch64") {
-                    format!("rustdesk-{_version}-aarch64.dmg")
-                } else {
-                    "error:unsupported".to_owned()
-                };
-            }
-            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-            {
-                "error:unsupported".to_owned()
             }
         } else {
             "".to_owned()
@@ -2918,7 +2899,12 @@ pub fn main_set_common(_key: String, _value: String) {
     {
         use crate::updater::get_download_file_from_url;
         if _key == "download-new-version" {
-            let download_url = _value.clone();
+            let version = crate::common::get_software_update_version();
+            let download_url = crate::common::resolve_software_update_download_url_with_fallback(
+                &_value,
+                &version,
+            )
+            .unwrap_or(_value);
             let event_key = "download-new-version".to_owned();
             let data = if let Some(download_file) = get_download_file_from_url(&download_url) {
                 std::fs::remove_file(&download_file).ok();

@@ -9,19 +9,24 @@ import 'package:url_launcher/url_launcher.dart';
 
 final _isExtracting = false.obs;
 
-void handleUpdate(String releasePageUrl) {
+void handleUpdate(String updateUrl) {
   _isExtracting.value = false;
-  String downloadUrl = releasePageUrl.replaceAll('tag', 'download');
-  String version = downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1);
-  final String downloadFile =
-      bind.mainGetCommonSync(key: 'download-file-$version');
-  if (downloadFile.startsWith('error:')) {
-    final error = downloadFile.replaceFirst('error:', '');
-    msgBox(gFFI.sessionId, 'custom-nocancel-nook-hasclose', 'Error', error,
-        releasePageUrl, gFFI.dialogManager);
-    return;
+  String downloadUrl;
+  if (updateUrl.contains('/RustDeskClients/') && !updateUrl.endsWith('.json')) {
+    downloadUrl = updateUrl;
+  } else {
+    downloadUrl = updateUrl.replaceAll('tag', 'download');
+    final version = downloadUrl.substring(downloadUrl.lastIndexOf('/') + 1);
+    final String downloadFile =
+        bind.mainGetCommonSync(key: 'download-file-$version');
+    if (downloadFile.startsWith('error:')) {
+      final error = downloadFile.replaceFirst('error:', '');
+      msgBox(gFFI.sessionId, 'custom-nocancel-nook-hasclose', 'Error', error,
+          updateUrl, gFFI.dialogManager);
+      return;
+    }
+    downloadUrl = '$downloadUrl/$downloadFile';
   }
-  downloadUrl = '$downloadUrl/$downloadFile';
 
   SimpleWrapper downloadId = SimpleWrapper('');
   SimpleWrapper<VoidCallback> onCanceled = SimpleWrapper(() {});
@@ -32,7 +37,7 @@ void handleUpdate(String releasePageUrl) {
             ? 'Preparing for installation ...'
             : 'Downloading {$appName}'))),
         content:
-            UpdateProgress(releasePageUrl, downloadUrl, downloadId, onCanceled)
+            UpdateProgress(updateUrl, downloadUrl, downloadId, onCanceled)
                 .marginSymmetric(horizontal: 8)
                 .paddingOnly(top: 12),
         actions: [
