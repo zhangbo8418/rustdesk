@@ -93,7 +93,6 @@ pub mod input {
 }
 
 const SOFTWARE_UPDATE_BASE: &str = "https://spk.bobohome.store:8880/download/RustDeskClients";
-const SOFTWARE_UPDATE_REDIRECTS: [&str; 2] = ["y", "n"];
 
 lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
@@ -943,11 +942,18 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
     }
 }
 
-fn software_update_check_url(redirect: &str) -> String {
-    format!(
-        "{}/update.json?redirect={}",
-        SOFTWARE_UPDATE_BASE, redirect
-    )
+fn software_update_check_url(with_redirect: bool) -> String {
+    if with_redirect {
+        format!("{}/update.json?redirect=y", SOFTWARE_UPDATE_BASE)
+    } else {
+        format!("{}/update.json", SOFTWARE_UPDATE_BASE)
+    }
+}
+
+fn software_update_strip_redirect(url: &str) -> String {
+    url.strip_suffix("?redirect=y")
+        .unwrap_or(url)
+        .to_string()
 }
 
 #[cfg(target_os = "linux")]
@@ -1096,25 +1102,15 @@ fn software_update_download_filename(version: &str) -> hbb_common::ResultType<St
     }
 }
 
-fn software_update_download_url(version: &str, redirect: &str) -> hbb_common::ResultType<String> {
+fn software_update_download_url(version: &str, with_redirect: bool) -> hbb_common::ResultType<String> {
     let filename = software_update_download_filename(version)?;
-    Ok(format!(
-        "{}/{}/{}?redirect={}",
-        SOFTWARE_UPDATE_BASE, version, filename, redirect
-    ))
-}
-
-fn software_update_url_with_redirect(url: &str, redirect: &str) -> String {
-    if let Some(idx) = url.find("redirect=") {
-        let end = url[idx..]
-            .find('&')
-            .map(|i| idx + i)
-            .unwrap_or(url.len());
-        format!("{}{}{}", &url[..idx], format!("redirect={}", redirect), &url[end..])
-    } else if url.contains('?') {
-        format!("{}&redirect={}", url, redirect)
+    if with_redirect {
+        Ok(format!(
+            "{}/{}/{}?redirect=y",
+            SOFTWARE_UPDATE_BASE, version, filename
+        ))
     } else {
-        format!("{}?redirect={}", url, redirect)
+        Ok(format!("{}/{}/{}", SOFTWARE_UPDATE_BASE, version, filename))
     }
 }
 
@@ -1127,16 +1123,21 @@ fn parse_version_check_response(resp: &hbb_common::VersionCheckResponse) -> hbb_
 
 async fn fetch_software_update_version() -> hbb_common::ResultType<String> {
     let mut last_err = None;
-    for redirect in SOFTWARE_UPDATE_REDIRECTS {
-        let url = software_update_check_url(redirect);
+    for with_redirect in [true, false] {
+        let url = software_update_check_url(with_redirect);
+        let redirect_label = if with_redirect {
+            "redirect=y"
+        } else {
+            "no redirect"
+        };
         match http_get_async(&url).await {
             Ok(bytes) => match serde_json::from_slice::<hbb_common::VersionCheckResponse>(&bytes) {
                 Ok(resp) => match parse_version_check_response(&resp) {
                     Ok(version) => return Ok(version),
                     Err(e) => {
                         log::debug!(
-                            "software update json invalid (redirect={}): {}",
-                            redirect,
+                            "software update json invalid ({}): {}",
+                            redirect_label,
                             e
                         );
                         last_err = Some(e);
@@ -1144,15 +1145,19 @@ async fn fetch_software_update_version() -> hbb_common::ResultType<String> {
                 },
                 Err(e) => {
                     log::debug!(
-                        "software update json parse failed (redirect={}): {}",
-                        redirect,
+                        "software update json parse failed ({}): {}",
+                        redirect_label,
                         e
                     );
                     last_err = Some(e.into());
                 }
             },
             Err(e) => {
-                log::debug!("software update json fetch failed (redirect={}): {}", redirect, e);
+                log::debug!(
+                    "software update json fetch failed ({}): {}",
+                    redirect_label,
+                    e
+                );
                 last_err = Some(e);
             }
         }
@@ -1161,14 +1166,12 @@ async fn fetch_software_update_version() -> hbb_common::ResultType<String> {
 }
 
 fn build_software_update_download_url(version: &str) -> hbb_common::ResultType<String> {
-    software_update_download_url(version, SOFTWARE_UPDATE_REDIRECTS[0])
+    software_update_download_url(version, true)
 }
 
 pub fn alternate_software_update_download_url(url: &str) -> Option<String> {
     if url.contains("redirect=y") {
-        Some(software_update_url_with_redirect(url, "n"))
-    } else if url.contains("redirect=n") {
-        Some(software_update_url_with_redirect(url, "y"))
+        Some(software_update_strip_redirect(url))
     } else {
         None
     }
