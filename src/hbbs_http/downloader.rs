@@ -159,6 +159,31 @@ pub fn download_file(
     Ok(id)
 }
 
+fn content_length_from_headers(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|ct_len| ct_len.to_str().ok())
+        .and_then(|ct_len| ct_len.parse::<u64>().ok())
+}
+
+async fn try_head_content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
+    match client.head(url).send().await {
+        Ok(resp) if resp.status().is_success() => content_length_from_headers(resp.headers()),
+        Ok(resp) => {
+            log::debug!(
+                "HEAD {} returned {}, falling back to GET for content length",
+                url,
+                resp.status()
+            );
+            None
+        }
+        Err(e) => {
+            log::debug!("HEAD {} failed: {}, falling back to GET", url, e);
+            None
+        }
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn do_download(
     id: &str,
@@ -174,28 +199,11 @@ async fn do_download(
         _ = rx_cancel.recv() => {
             return Ok(is_all_downloaded);
         }
-        head_resp = client.head(&url).send() => {
-            match head_resp {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        let total_size = resp
-                            .headers()
-                            .get(reqwest::header::CONTENT_LENGTH)
-                            .and_then(|ct_len| ct_len.to_str().ok())
-                            .and_then(|ct_len| ct_len.parse::<u64>().ok());
-                        let Some(total_size) = total_size else {
-                            bail!("Failed to get content length");
-                        };
-                        DOWNLOADERS.lock().unwrap().get_mut(id).map(|downloader| {
-                            downloader.total_size = Some(total_size);
-                        });
-                    } else {
-                        bail!("Failed to get content length: {}", resp.status());
-                    }
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
+        total_size = try_head_content_length(&client, &url) => {
+            if let Some(total_size) = total_size {
+                DOWNLOADERS.lock().unwrap().get_mut(id).map(|downloader| {
+                    downloader.total_size = Some(total_size);
+                });
             }
         }
     }
@@ -205,8 +213,24 @@ async fn do_download(
         _ = rx_cancel.recv() => {
             return Ok(is_all_downloaded);
         }
-        resp = client.get(url).send() => {
+        resp = client.get(&url).send() => {
             response = resp?;
+        }
+    }
+    if !response.status().is_success() {
+        bail!("Download failed: {}", response.status());
+    }
+    if DOWNLOADERS
+        .lock()
+        .unwrap()
+        .get(id)
+        .and_then(|d| d.total_size)
+        .is_none()
+    {
+        if let Some(total_size) = content_length_from_headers(response.headers()) {
+            DOWNLOADERS.lock().unwrap().get_mut(id).map(|downloader| {
+                downloader.total_size = Some(total_size);
+            });
         }
     }
 
@@ -241,6 +265,11 @@ async fn do_download(
                     }
                     Ok(None) => {
                         is_all_downloaded = true;
+                        DOWNLOADERS.lock().unwrap().get_mut(id).map(|downloader| {
+                            if downloader.total_size.is_none() {
+                                downloader.total_size = Some(downloader.downloaded_size);
+                            }
+                        });
                         break;
                     },
                     Err(e) => {
