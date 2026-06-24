@@ -321,7 +321,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Fullscreen", "Tela Cheia"),
         ("Mobile Actions", "Ações móveis"),
         ("Select Monitor", "Selecionar tela"),
-        ("Control Actions", "Controlar ações"),
+        ("Control Actions", "Ações de controle"),
         ("Display Settings", "Configurações de exibição"),
         ("Ratio", "Proporção"),
         ("Image Quality", "Qualidade de imagem"),
@@ -761,5 +761,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Switch display", "Trocar de tela"),
         ("Show monitor switch button on the main toolbar", "Mostrar botão de troca de tela na barra de ferramentas"),
         ("Show on the minimized toolbar", "Mostrar na barra de ferramentas minimizada"),
+        ("All monitors", "Todas as telas"),
+        ("#{} monitor", "Tela {}"),
     ].iter().cloned().collect();
 }
