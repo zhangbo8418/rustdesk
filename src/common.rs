@@ -1063,6 +1063,7 @@ fn software_update_download_filename(version: &str) -> hbb_common::ResultType<St
                 ))
             }
             "x86" => Ok(format!("rustdesk-{}-x86-sciter.exe", version)),
+            "aarch64" => Ok(format!("rustdesk-{}-aarch64.exe", version)),
             arch => bail!("unsupported windows arch for software update: {}", arch),
         }
     }
