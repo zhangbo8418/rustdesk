@@ -553,12 +553,18 @@ impl UI {
         let name = crate::SOFTWARE_UPDATE_URL
             .lock()
             .unwrap()
-            .split("/")
+            .split('/')
             .last()
-            .map(|x| x.to_owned())
-            .unwrap_or(crate::get_app_name());
+            .map(|x| x.split('?').next().unwrap_or(x).to_owned())
+            .unwrap_or_else(|| {
+                format!(
+                    "{}.{}",
+                    crate::get_app_name(),
+                    self.get_software_ext()
+                )
+            });
         p.push(name);
-        format!("{}.{}", p.to_string_lossy(), self.get_software_ext())
+        p.to_string_lossy().to_string()
     }
 
     fn create_shortcut(&self, _id: String) {

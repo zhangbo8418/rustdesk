@@ -1010,7 +1010,11 @@ fn is_linux_deb_installed() -> bool {
 #[cfg(target_os = "linux")]
 fn linux_deb_download_filename(version: &str) -> hbb_common::ResultType<String> {
     let arch = linux_software_update_arch()?;
-    Ok(format!("rustdesk-{}-{}.deb", version, arch))
+    Ok(if cfg!(feature = "flutter") {
+        format!("rustdesk-{}-{}.deb", version, arch)
+    } else {
+        format!("rustdesk-{}-{}-sciter.deb", version, arch)
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -1053,18 +1057,25 @@ fn linux_software_update_filename(version: &str) -> hbb_common::ResultType<Strin
 fn software_update_download_filename(version: &str) -> hbb_common::ResultType<String> {
     #[cfg(target_os = "windows")]
     {
-        match std::env::consts::ARCH {
-            "x86_64" | "aarch64" => {
-                let msi = crate::platform::is_msi_installed()? && !is_custom_client();
-                Ok(format!(
-                    "rustdesk-{}-{}.{}",
-                    version,
-                    std::env::consts::ARCH,
-                    if msi { "msi" } else { "exe" }
-                ))
-            }
-            "x86" => Ok(format!("rustdesk-{}-x86-sciter.exe", version)),
-            arch => bail!("unsupported windows arch for software update: {}", arch),
+        #[cfg(feature = "flutter")]
+        {
+            let Some(arch) = crate::platform::windows::release_arch_suffix() else {
+                bail!(
+                    "unsupported windows arch for software update: {}",
+                    std::env::consts::ARCH
+                );
+            };
+            let msi = crate::platform::is_msi_installed()? && !is_custom_client();
+            Ok(format!(
+                "rustdesk-{}-{}.{}",
+                version,
+                arch,
+                if msi { "msi" } else { "exe" }
+            ))
+        }
+        #[cfg(not(feature = "flutter"))]
+        {
+            Ok(format!("rustdesk-{}-x86-sciter.exe", version))
         }
     }
     #[cfg(target_os = "macos")]
