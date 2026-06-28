@@ -1054,16 +1054,16 @@ fn software_update_download_filename(version: &str) -> hbb_common::ResultType<St
     #[cfg(target_os = "windows")]
     {
         match std::env::consts::ARCH {
-            "x86_64" => {
+            "x86_64" | "aarch64" => {
                 let msi = crate::platform::is_msi_installed()? && !is_custom_client();
                 Ok(format!(
-                    "rustdesk-{}-x86_64.{}",
+                    "rustdesk-{}-{}.{}",
                     version,
+                    std::env::consts::ARCH,
                     if msi { "msi" } else { "exe" }
                 ))
             }
             "x86" => Ok(format!("rustdesk-{}-x86-sciter.exe", version)),
-            "aarch64" => Ok(format!("rustdesk-{}-aarch64.exe", version)),
             arch => bail!("unsupported windows arch for software update: {}", arch),
         }
     }
