@@ -1026,7 +1026,7 @@ pub fn main_set_option(key: String, value: String) {
         set_option(key, value.clone());
         #[cfg(target_os = "android")]
         crate::rendezvous_mediator::RendezvousMediator::restart();
-        #[cfg(any(target_os = "android", target_os = "ios", feature = "cli"))]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         crate::common::test_rendezvous_server();
     } else {
         set_option(key, value.clone());
@@ -2989,6 +2989,16 @@ pub fn main_set_common(_key: String, _value: String) {
                 serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
             );
         });
+    }
+}
+
+pub fn session_set_common(session_id: SessionID, key: String, value: String) {
+    if let Some(s) = sessions::get_session_by_session_id(&session_id) {
+        if key == "continue-insecure-connection"
+        {
+            s.continue_insecure_connection(value == "Y");
+            return;
+        }
     }
 }
 
