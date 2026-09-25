@@ -84,8 +84,6 @@ const double _kPositionEpsilon = 1e-6;
 bool get isMainDesktopWindow =>
     desktopType == DesktopType.main || desktopType == DesktopType.cm;
 
-String get screenInfo => screenInfo_;
-
 /// Check if the app is running with single view mode.
 bool isSingleViewApp() {
   return desktopType == DesktopType.cm;
@@ -1521,13 +1519,6 @@ class AndroidPermissionManager {
   static Timer? _timer;
   static var _current = "";
 
-  static bool isWaitingFile() {
-    if (_completer != null) {
-      return !_completer!.isCompleted && _current == kManageExternalStorage;
-    }
-    return false;
-  }
-
   static Future<bool> check(String type) {
     if (isDesktop || isWeb) {
       return Future.value(true);
@@ -1642,7 +1633,8 @@ String bool2option(String option, bool b) {
   String res;
   if (option.startsWith('enable-') &&
       option != kOptionEnableUdpPunch &&
-      option != kOptionEnableIpv6Punch) {
+      option != kOptionEnableIpv6Punch &&
+      option != kOptionEnableWebrtc) {
     res = b ? defaultOptionYes : 'N';
   } else if (option.startsWith('allow-') ||
       option == kOptionStopService ||
@@ -2636,13 +2628,6 @@ connect(BuildContext context, String id,
     }
   } else {
     if (isFileTransfer) {
-      if (isAndroid) {
-        if (!await AndroidPermissionManager.check(kManageExternalStorage)) {
-          if (!await AndroidPermissionManager.request(kManageExternalStorage)) {
-            return;
-          }
-        }
-      }
       if (isWeb) {
         Navigator.push(
           context,
