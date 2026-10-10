@@ -110,6 +110,17 @@ fn connector_key(d: &DrmDisplayInfo) -> String {
     format!("{}:{}", d.device, d.name)
 }
 
+/// The transform whose dimensions the delivered frames have: a plane rotated 90/270 in hardware
+/// already hands over the transposed scanout (and `frame_transform` then turns nothing), whatever
+/// the output transform says; otherwise the output transform is undone in software.
+fn delivered_transform(d: &DrmDisplayInfo, wl_transform: i32) -> i32 {
+    if d.plane_transposed {
+        90
+    } else {
+        wl_transform
+    }
+}
+
 /// Frame dimensions after undoing `transform` degrees of output rotation.
 fn rotated_dims(transform: i32, w: usize, h: usize) -> (usize, usize) {
     if transform == 90 || transform == 270 {
@@ -416,9 +427,13 @@ impl IpcDrmCapturer {
                 stop,
                 display,
                 connector: displays.get(wire_idx).map(connector_key),
-                session_size: displays
-                    .get(wire_idx)
-                    .map(|d| rotated_dims(wl_transform, d.width as usize, d.height as usize)),
+                session_size: displays.get(wire_idx).map(|d| {
+                    rotated_dims(
+                        delivered_transform(d, wl_transform),
+                        d.width as usize,
+                        d.height as usize,
+                    )
+                }),
                 transform: wl_transform,
                 snapshot_gen,
                 cur: Vec::new(),
@@ -600,6 +615,10 @@ async fn recv_thread(
             return;
         }
     };
+    if let Err(err) = conn.send_msg(&Data::DrmHello { wake: true }, None).await {
+        let _ = tx.send(Err(err));
+        return;
+    }
     let displays = match conn.recv_msg_timeout2(DISPLAY_LIST_TIMEOUT_MS).await {
         Some(Ok((Data::DrmDisplayList(v), _fd))) => v,
         Some(Ok((other, _fd))) => {
@@ -1536,12 +1555,12 @@ const NEGATIVE_TTL: Duration = Duration::from_secs(30);
 const POSITIVE_TTL: Duration = Duration::from_secs(15);
 
 /// Runs on a throwaway thread: a nested `#[tokio::main]` panics if called from inside a runtime.
-fn query_displays() -> ResultType<Vec<DrmDisplayInfo>> {
+fn query_displays(wake: bool) -> ResultType<Vec<DrmDisplayInfo>> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("drm-query".into())
         .spawn(move || {
-            let _ = tx.send(query_displays_async());
+            let _ = tx.send(query_displays_async(wake));
         })
         .map_err(|err| anyhow!("could not spawn the drm display query thread: {err}"))?;
     rx.recv_timeout(Duration::from_millis(HANDSHAKE_WAIT_MS))
@@ -1549,12 +1568,13 @@ fn query_displays() -> ResultType<Vec<DrmDisplayInfo>> {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn query_displays_async() -> ResultType<Vec<DrmDisplayInfo>> {
-    query_displays_inner().await
+async fn query_displays_async(wake: bool) -> ResultType<Vec<DrmDisplayInfo>> {
+    query_displays_inner(wake).await
 }
 
-async fn query_displays_inner() -> ResultType<Vec<DrmDisplayInfo>> {
+async fn query_displays_inner(wake: bool) -> ResultType<Vec<DrmDisplayInfo>> {
     let mut conn = connect_drm(DRM_CONNECT_TIMEOUT_MS).await?;
+    conn.send_msg(&Data::DrmHello { wake }, None).await?;
     match conn.recv_msg_timeout2(DISPLAY_LIST_TIMEOUT_MS).await {
         Some(Ok((Data::DrmDisplayList(v), _fd))) => Ok(v),
         Some(Ok((other, _fd))) => Err(anyhow!("expected DrmDisplayList, got {:?}", other)),
@@ -1625,8 +1645,8 @@ pub(crate) enum Availability {
     Unsettled,
 }
 
-/// MAY BLOCK for seconds: never a routing gate, and never on the login request path — that path
-/// reads `availability_cached`. This blocking form serves the capture-side callers through
+/// MAY BLOCK for seconds: never on an async executor (a login with no verdict runs it on the
+/// blocking pool). This blocking form serves the capture-side callers through
 /// `is_available`, where waiting out a settle is acceptable.
 fn availability() -> Availability {
     let (verdict, stale_no) = {
@@ -1709,7 +1729,7 @@ pub(crate) fn availability_cached() -> Availability {
 /// Probe synchronously and publish the outcome. The caller must hold DRM_PROBE_IN_FLIGHT.
 fn probe_and_publish() -> Availability {
     let t = Instant::now();
-    let result = query_displays();
+    let result = query_displays(true);
     let mut st = DRM_STATE.lock().unwrap();
     let answer = match result {
         Ok(list) if !list.is_empty() => {
@@ -1772,7 +1792,7 @@ fn refresh_unavailable_async() {
         .name("drm-unavail-refresh".into())
         .spawn(move || {
             let _in_flight = in_flight;
-            let result = query_displays();
+            let result = query_displays(true);
             let mut st = DRM_STATE.lock().unwrap();
             if DRM_STATE_GEN.load(Ordering::Acquire) != sampled_gen {
                 return;
@@ -1816,7 +1836,7 @@ fn refresh_available_async() {
         .name("drm-avail-refresh".into())
         .spawn(move || {
             let _in_flight = in_flight;
-            let result = query_displays();
+            let result = query_displays(true);
             let mut st = DRM_STATE.lock().unwrap();
             if DRM_STATE_GEN.load(Ordering::Acquire) != sampled_gen {
                 return;
@@ -1881,19 +1901,42 @@ pub(super) fn warm_availability() {
             std::thread::sleep(Duration::from_millis(300));
             continue;
         }
-        if matches!(&*DRM_STATE.lock().unwrap(), ProbeState::Available(..)) {
-            return;
-        }
-        match query_displays() {
-            Ok(list) if !list.is_empty() => {
-                log::info!("drm: consumer cache warmed ({} displays) at startup", list.len());
-                publish_probe_state(&mut DRM_STATE.lock().unwrap(), ProbeState::Available(Instant::now(), list));
+        let sampled_gen = {
+            let st = DRM_STATE.lock().unwrap();
+            if matches!(&*st, ProbeState::Available(..)) {
                 return;
             }
-            _ => std::thread::sleep(Duration::from_millis(300)),
+            DRM_STATE_GEN.load(Ordering::Acquire)
+        };
+        match query_displays(false) {
+            Ok(list) if !list.is_empty() => {
+                let mut st = DRM_STATE.lock().unwrap();
+                // A login probe that published while this query ran keeps its newer list.
+                if DRM_STATE_GEN.load(Ordering::Acquire) == sampled_gen {
+                    log::info!("drm: consumer cache warmed ({} displays) at startup", list.len());
+                    publish_probe_state(&mut st, ProbeState::Available(Instant::now(), list));
+                }
+                return;
+            }
+            Ok(_) => {
+                log::info!("drm: no display is lit at startup; the first login probes again");
+                return;
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(300)),
         }
     }
     log::info!("drm: consumer cache warm found no producer at startup (will probe lazily)");
+}
+
+/// With no verdict yet, a login probes now instead of answering "not yet"; that may wake displays.
+/// A login that finds another probe running does not wait for it.
+pub(super) async fn settle_unknown_availability() {
+    let unknown = matches!(&*DRM_STATE.lock().unwrap(), ProbeState::Unknown);
+    if unknown {
+        if let Err(err) = tokio::task::spawn_blocking(availability).await {
+            log::warn!("drm: login availability settlement task failed: {err}");
+        }
+    }
 }
 
 /// The service holds its answer until the topology settles. Replaces only an `Available` verdict.
@@ -1906,7 +1949,7 @@ pub(super) async fn refresh_displays_for_login() {
         DRM_STATE_GEN.load(Ordering::Acquire)
     };
     let t = Instant::now();
-    match query_displays_inner().await {
+    match query_displays_inner(true).await {
         Ok(list) if !list.is_empty() => {
             let changed = {
                 let mut st = DRM_STATE.lock().unwrap();
@@ -2094,7 +2137,8 @@ fn augment_with_wayland_geometry_from(
         // Identity matches ONLY, the same rule the capturer's transform follows: swapping on a
         // layout-order guess advertises dimensions the capturer will not deliver.
         let is_identity = identity[i].is_some() && identity[i] == matched[i];
-        if is_identity && (w.transform == 90 || w.transform == 270) {
+        // A plane-transposed display was already swapped by `display_info_from_drm`.
+        if is_identity && !drm[i].plane_transposed && (w.transform == 90 || w.transform == 270) {
             std::mem::swap(&mut info.width, &mut info.height);
             info.original_resolution = super::display_service::get_original_resolution(
                 &drm[i].name,
@@ -2231,13 +2275,18 @@ fn swap_available_displays(list: Vec<DrmDisplayInfo>) {
 }
 
 fn display_info_from_drm(d: &DrmDisplayInfo) -> DisplayInfo {
+    let (width, height) = rotated_dims(
+        delivered_transform(d, 0),
+        d.width as usize,
+        d.height as usize,
+    );
     let original_resolution =
-        super::display_service::get_original_resolution(&d.name, d.width as usize, d.height as usize);
+        super::display_service::get_original_resolution(&d.name, width, height);
     DisplayInfo {
         x: d.x,
         y: d.y,
-        width: d.width as i32,
-        height: d.height as i32,
+        width: width as i32,
+        height: height as i32,
         name: d.name.clone(),
         online: d.active,
         cursor_embedded: false,
@@ -2302,7 +2351,11 @@ pub(super) fn get_capturer_info(
     // Origin and transform come from the ONE snapshot new() resolved, so both reflect the
     // same output assignment; dimensions stay PHYSICAL, rotated to frame orientation.
     let origin = origin.unwrap_or((d.x, d.y));
-    let (cap_w, cap_h) = rotated_dims(capturer.transform, d.width as usize, d.height as usize);
+    let (cap_w, cap_h) = rotated_dims(
+        delivered_transform(&d, capturer.transform),
+        d.width as usize,
+        d.height as usize,
+    );
     Ok(super::video_service::CapturerInfo {
         origin,
         width: cap_w,
@@ -3764,6 +3817,7 @@ mod drm_capturer_tests {
             active: true,
             render_node: String::new(),
             device: String::new(),
+            plane_transposed: false,
         }
     }
 
@@ -3784,6 +3838,51 @@ mod drm_capturer_tests {
             refresh_rate: 60,
             transform: 0,
         }
+    }
+
+    fn plane_transposed_display(name: &str, w: u32, h: u32) -> DrmDisplayInfo {
+        DrmDisplayInfo {
+            plane_transposed: true,
+            ..drm_display(name, w, h)
+        }
+    }
+
+    #[test]
+    fn a_plane_transposed_display_advertises_its_scanout() {
+        // Steam Deck under gamescope: 800x1280 panel mode, 1280x800 framebuffer on a rotate-270
+        // plane, and no wayland output that matches the connector.
+        let drm = [plane_transposed_display("eDP-1", 800, 1280)];
+        let wl = scrap::wayland::display::Displays {
+            primary: 0,
+            displays: vec![],
+        };
+        let assignment = assign_wayland_outputs(&drm, &wl.displays);
+        let infos = augment_with_wayland_geometry_from(&drm, &wl, &assignment);
+        assert_eq!((infos[0].width, infos[0].height), (1280, 800));
+    }
+
+    #[test]
+    fn a_plane_transposed_scanout_is_delivered_at_the_advertised_size() {
+        let d = plane_transposed_display("eDP-1", 800, 1280);
+        let session = rotated_dims(delivered_transform(&d, 0), d.width as usize, d.height as usize);
+        let mut c = capturer_named(Some(session), Some("test:plane-transposed-session"));
+        put_frame_rot(&c, 1280, 800, Some(0x8));
+        assert!(matches!(c.frame(Duration::from_millis(50)), Ok(_)));
+    }
+
+    #[test]
+    fn a_rotated_output_over_a_rotated_plane_is_swapped_once() {
+        // mutter rotates the output and programs the plane from it: one quarter turn, as before.
+        let drm = [plane_transposed_display("HDMI-A-1", 1920, 1080)];
+        let mut out = wl_display("HDMI-1", 0, 0, 1920, 1080);
+        out.transform = 90;
+        let wl = scrap::wayland::display::Displays {
+            primary: 0,
+            displays: vec![out],
+        };
+        let assignment = assign_wayland_outputs(&drm, &wl.displays);
+        let infos = augment_with_wayland_geometry_from(&drm, &wl, &assignment);
+        assert_eq!((infos[0].width, infos[0].height), (1080, 1920));
     }
 
     #[test]
