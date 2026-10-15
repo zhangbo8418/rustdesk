@@ -5,8 +5,7 @@ use crate::common::do_check_software_update;
 use artifact::verified_update_artifact_from_release_page_url;
 pub(crate) use artifact::{current_update_arch, current_update_format, current_update_platform};
 pub use artifact::{
-    current_update_artifact_query, finalize_self_hosted_update_artifact,
-    get_update_download_file_from_url, is_self_hosted_update_url,
+    current_update_artifact_query, get_update_download_file_from_url, is_self_hosted_update_url,
     prepare_self_hosted_update_artifact, verified_update_artifact_for_download_url,
     verified_update_artifact_for_release_page_url,
 };
@@ -213,32 +212,39 @@ fn check_update(manually: bool) -> ResultType<()> {
             log::debug!("Automatic update is not supported on this platform.");
             return Ok(());
         }
-        let artifact = if is_self_hosted_update_url(&update_url) {
+        if is_self_hosted_update_url(&update_url) {
             let prepared = prepare_self_hosted_update_artifact(&update_url)?;
             let Some(file_path) = get_update_download_file_from_url(&prepared.url) else {
                 bail!("Failed to get the file path from the URL: {}", prepared.url);
             };
             download_self_hosted_update_artifact(&prepared.url, &file_path, prepared.size)?;
-            finalize_self_hosted_update_artifact(&prepared.url, &file_path)?
-        } else {
-            let query = crate::update_metadata::UpdateArtifactQuery {
-                platform: current_update_platform(),
-                arch: current_update_arch(),
-                format: update_format,
-            };
-            let artifact = verified_update_artifact_from_release_page_url(&update_url, &query)?;
-            let download_url = artifact.url.as_str();
-            let Some(file_path) = get_update_download_file_from_url(download_url) else {
-                bail!("Failed to get the file path from the URL: {}", download_url);
-            };
-            ensure_verified_update_artifact(
-                download_url,
-                &file_path,
-                artifact.size,
-                &artifact.sha256,
-            )?;
-            artifact
+            if has_no_active_conns() {
+                let Some(file_path) = file_path.to_str() else {
+                    bail!("Invalid UTF-8 path: {}", file_path.display());
+                };
+                #[cfg(target_os = "windows")]
+                crate::platform::update_to(file_path)?;
+                #[cfg(target_os = "macos")]
+                crate::platform::macos::update_to(file_path)?;
+            }
+            return Ok(());
+        }
+        let query = crate::update_metadata::UpdateArtifactQuery {
+            platform: current_update_platform(),
+            arch: current_update_arch(),
+            format: update_format,
         };
+        let artifact = verified_update_artifact_from_release_page_url(&update_url, &query)?;
+        let download_url = artifact.url.as_str();
+        let Some(file_path) = get_update_download_file_from_url(download_url) else {
+            bail!("Failed to get the file path from the URL: {}", download_url);
+        };
+        ensure_verified_update_artifact(
+            download_url,
+            &file_path,
+            artifact.size,
+            &artifact.sha256,
+        )?;
         let download_url = artifact.url.as_str();
         #[cfg(target_os = "windows")]
         let version = artifact.version.as_str();
@@ -673,8 +679,7 @@ pub fn check_update_as_root() -> ResultType<bool> {
     let file_path = Path::new(&private_tmp).join(&artifact.file_name);
     let tmp_path = file_path.to_string_lossy().to_string();
     let artifact = match if self_hosted {
-        download_self_hosted_update_artifact(dmg_url, &file_path, artifact.size)
-            .and_then(|_| finalize_self_hosted_update_artifact(dmg_url, &file_path))
+        download_self_hosted_update_artifact(dmg_url, &file_path, artifact.size).map(|_| artifact)
     } else {
         ensure_verified_update_artifact(dmg_url, &file_path, artifact.size, &artifact.sha256)
             .map(|_| artifact)
@@ -691,7 +696,7 @@ pub fn check_update_as_root() -> ResultType<bool> {
             return Err(err);
         }
     };
-    log::info!("[root-update] Downloaded and verified at {}", tmp_path);
+    log::info!("[root-update] Downloaded at {}", tmp_path);
     // Recheck active sessions before installing — download can take minutes
     if !has_no_active_conns_ipc() {
         if let Err(e) = std::fs::remove_dir_all(&private_tmp) {

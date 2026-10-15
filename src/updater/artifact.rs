@@ -192,31 +192,9 @@ pub fn prepare_self_hosted_update_artifact(
             .unwrap_or("update.dmg")
             .to_owned(),
         size,
-        // Filled from the downloaded file before installation.
+        // Self-hosted updates have no trusted expected hash; install without SHA256 verify.
         sha256: String::new(),
     };
-    *VERIFIED_UPDATE_ARTIFACT.lock().unwrap() = Some(artifact.clone());
-    Ok(artifact)
-}
-
-pub fn finalize_self_hosted_update_artifact(
-    download_url: &str,
-    file_path: &Path,
-) -> ResultType<VerifiedUpdateArtifact> {
-    let mut artifact = VERIFIED_UPDATE_ARTIFACT
-        .lock()
-        .unwrap()
-        .as_ref()
-        .filter(|artifact| artifact.url == download_url)
-        .cloned()
-        .ok_or_else(|| {
-            hbb_common::anyhow::anyhow!("self-hosted update artifact was not prepared")
-        })?;
-    let mut file = std::fs::File::open(file_path)?;
-    let sha256 = crate::update_hash::sha256_reader_hex(&mut file)?;
-    let size = file_path.metadata()?.len();
-    artifact.sha256 = sha256;
-    artifact.size = size;
     *VERIFIED_UPDATE_ARTIFACT.lock().unwrap() = Some(artifact.clone());
     Ok(artifact)
 }

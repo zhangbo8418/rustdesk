@@ -3928,6 +3928,48 @@ pub fn update_me_msi(msi: &str, expected_sha256: &str, quiet: bool) -> ResultTyp
     verified_update::install_verified_msi(msi, expected_sha256, quiet)
 }
 
+/// Self-hosted update install without SHA256 verification.
+pub fn update_to(file: &str) -> ResultType<()> {
+    if file.ends_with(".exe") {
+        let custom_client_staging_dir = get_custom_client_staging_dir();
+        if crate::is_custom_client() {
+            handle_custom_client_staging_dir_before_update(&custom_client_staging_dir)?;
+        } else {
+            allow_err!(remove_custom_client_staging_dir(&custom_client_staging_dir));
+        }
+        if !run_uac(file, "--update")? {
+            bail!(
+                "Failed to run the update exe with UAC, error: {:?}",
+                std::io::Error::last_os_error()
+            );
+        }
+    } else if file.ends_with(".msi") {
+        let quiet_args = "";
+        let app_name = crate::get_app_name();
+        let subkey = format!(".{}", app_name.to_lowercase());
+        let printer_installed = get_reg_of_hkcr(&subkey, REG_NAME_INSTALL_PRINTER).as_deref()
+            != Some("0")
+            && remote_printer::is_rd_printer_installed(&app_name).unwrap_or_else(|err| {
+                log::warn!(
+                    "Failed to check printer installation status: {err}; skipping printer installation"
+                );
+                false
+            });
+        let printer_args = if printer_installed {
+            ""
+        } else {
+            " INSTALLPRINTER=0"
+        };
+        let cmds = format!(
+            "chcp 65001 && msiexec /i \"{file}\"{quiet_args}{printer_args} REBOOT=ReallySuppress /norestart"
+        );
+        run_cmds(cmds, false, "update-msi")?;
+    } else {
+        bail!("Unsupported update file format: {}", file);
+    }
+    Ok(())
+}
+
 fn get_import_config(exe: &str) -> String {
     if config::is_outgoing_only() {
         return "".to_string();

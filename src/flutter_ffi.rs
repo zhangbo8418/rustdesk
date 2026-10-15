@@ -2828,9 +2828,8 @@ pub fn main_set_common(_key: String, _value: String) {
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         use crate::updater::{
-            finalize_self_hosted_update_artifact, get_update_download_file_from_url,
-            is_self_hosted_update_url, prepare_self_hosted_update_artifact,
-            verified_update_artifact_for_download_url,
+            get_update_download_file_from_url, is_self_hosted_update_url,
+            prepare_self_hosted_update_artifact, verified_update_artifact_for_download_url,
         };
         if _key == "download-new-version" {
             let download_url = _value.clone();
@@ -2867,7 +2866,7 @@ pub fn main_set_common(_key: String, _value: String) {
                 }
                 Err(e) => HashMap::from([
                     ("name", event_key),
-                    ("error", format!("Failed to verify update metadata, {}", e)),
+                    ("error", format!("Failed to prepare update download, {}", e)),
                 ]),
             };
             let _res = flutter::push_global_event(
@@ -2875,31 +2874,44 @@ pub fn main_set_common(_key: String, _value: String) {
                 serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
             );
         } else if _key == "update-me" {
-            let artifact = if is_self_hosted_update_url(&_value) {
+            if is_self_hosted_update_url(&_value) {
                 let Some(new_version_file) = get_update_download_file_from_url(&_value) else {
                     let error = "Failed to resolve downloaded update file path".to_owned();
                     log::error!("{}", error);
                     push_update_me_error(error);
                     return;
                 };
-                match finalize_self_hosted_update_artifact(&_value, &new_version_file) {
-                    Ok(artifact) => artifact,
+                let Some(new_version_file_str) = new_version_file.to_str() else {
+                    let error = "Invalid UTF-8 path for downloaded update file".to_owned();
+                    log::error!("{}", error);
+                    push_update_me_error(error);
+                    return;
+                };
+                log::debug!(
+                    "New version file is downloaded, update begin, {:?}",
+                    new_version_file_str
+                );
+                let update_res = crate::platform::update_to(new_version_file_str);
+                if update_res.is_err() {
+                    crate::updater::remove_update_file(&new_version_file);
+                }
+                match update_res {
+                    Ok(_) => log::info!("Update process is launched successfully!"),
                     Err(e) => {
-                        let error = format!("Failed to hash self-hosted update, {}", e);
+                        let error = format!("Failed to update to new version, {}", e);
                         log::error!("{}", error);
                         push_update_me_error(error);
-                        return;
                     }
                 }
-            } else {
-                match verified_update_artifact_for_download_url(&_value) {
-                    Ok(artifact) => artifact,
-                    Err(e) => {
-                        let error = format!("Failed to verify update metadata, {}", e);
-                        log::error!("{}", error);
-                        push_update_me_error(error);
-                        return;
-                    }
+                return;
+            }
+            let artifact = match verified_update_artifact_for_download_url(&_value) {
+                Ok(artifact) => artifact,
+                Err(e) => {
+                    let error = format!("Failed to verify update metadata, {}", e);
+                    log::error!("{}", error);
+                    push_update_me_error(error);
+                    return;
                 }
             };
             let Some(new_version_file) = get_update_download_file_from_url(&artifact.url) else {

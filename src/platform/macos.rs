@@ -1052,6 +1052,13 @@ pub fn update_from_dmg(dmg_path: &str) -> ResultType<()> {
     Ok(())
 }
 
+/// Self-hosted update install without SHA256 verification.
+pub fn update_to(file: &str) -> ResultType<()> {
+    update_from_dmg(file)?;
+    quit_gui();
+    Ok(())
+}
+
 pub fn update_to_verified_dmg(
     file: &str,
     expected_sha256: &str,
