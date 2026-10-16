@@ -3326,7 +3326,6 @@ mod tests {
         }
     }
 
-    #[test]
     use hbb_common::tokio::{
         self,
         time::{interval, interval_at, sleep, Duration, Instant, Interval},
